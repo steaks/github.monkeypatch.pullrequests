@@ -132,6 +132,10 @@
                 setInterval(function () { self._getApprovalsAndRejections() }, 1000);
             };
 
+            PullRequestManager.prototype._isPullRequestOpen = function () {
+                return $(".view-pull-request").length !== 0;
+            };
+
             PullRequestManager.prototype._getPullRequestId = function () {
                 return parseInt($(".gh-header-number").text().substring(1), 10);
             };
@@ -145,8 +149,8 @@
 
             PullRequestManager.prototype._getApprovalsAndRejections = function () {
                 var self = this;
+                if (!this._isPullRequestOpen()) { return; }
                 var pullRequestId = this._getPullRequestId();
-                if (!pullRequestId) { return; }
 
                 var comments = $(".js-discussion .timeline-comment-wrapper")
                     .map(function (i, wrapper) {
