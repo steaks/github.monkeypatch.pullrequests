@@ -1,9 +1,9 @@
 {
   "manifest_version": 2,
 
-  "name": "GitHub Pull Request Approvals",
+  "name": "GitHub Pull Request Statuses",
   "description": "Approve or reject pull requests.",
-  "version": "1.0",
+  "version": "1.0.1",
 
   "permissions": [
     "https://www.exceptionsjs.com/*"
@@ -13,7 +13,8 @@
   },
   "content_scripts" : [{
     "matches" : [
-      "https://github.com/*/pull*"
+      "https://github.com/*/pull*",
+      "https://github.com/*/issues*"
     ],
     "js": [ "jquery-1.11.1.min.js", "lodash.js", "angular.js", "GitHubPullRequestStatus.js" ]
   }]

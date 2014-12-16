@@ -15,7 +15,7 @@
 
             StatusesManager.prototype.getFromServer = function (repoId) {
                 var self = this;
-                return $http.get("http://192.168.0.112/v0.1/pullrequeststatus/statuses/", { repoId: repoId })
+                return $http.get("http://localhost/v0.1/pullrequeststatus/statuses/", { repoId: repoId })
                     .success(function (serverStatuses) {
                         self._statuses = serverStatuses;
                         return self._statuses;
@@ -29,7 +29,7 @@
             StatusesManager.prototype.postStatuses = function(repoId, pullRequestId, pullRequestStatuses) {
                 this._statuses[pullRequestId] = pullRequestStatuses;
                 $.post(
-                    /*url*/"http://192.168.0.112/v0.1/pullrequeststatus/updatestatuses/",
+                    /*url*/"http://localhost/v0.1/pullrequeststatus/updatestatuses/",
                     /*data*/{ repoId: repoId, pullRequestId: pullRequestId, statuses: JSON.stringify(pullRequestStatuses) });
             };
 
