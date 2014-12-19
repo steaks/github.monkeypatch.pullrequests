@@ -13,9 +13,9 @@
                 this._statuses = {};
             }
 
-            StatusesManager.prototype.getFromServer = function (repoId) {
+            StatusesManager.prototype.getFromServer = function (repoId, pullRequestIds) {
                 var self = this;
-                return $http.get("http://localhost/v0.1/pullrequeststatus/statuses/", { repoId: repoId })
+                return $http.get("http://localhost/v0.1/pullrequeststatus/statuses/", { repoId: repoId, pullRequestIds: pullRequestIds })
                     .success(function (serverStatuses) {
                         self._statuses = serverStatuses;
                         return self._statuses;
@@ -39,17 +39,18 @@
 
             LocalStorageStatusesManager.prototype = Object.create(StatusesManager.prototype);
 
-            LocalStorageStatusesManager.prototype.getFromServer = function (repoId) {
-                var statuses = JSON.parse(localStorage.pullRequestStatuses || "{}");
-                this._statuses = statuses[repoId] || {};
+            LocalStorageStatusesManager.prototype.getFromServer = function (repoId, pullRequestIds) {
+                var statuses = {};
+                _.each(pullRequestIds, function (pullRequestId) {
+                    statuses[pullRequestId] = JSON.parse(localStorage.getItem("pullRequestStatuses_" + repoId.toString() + "_" +pullRequestId.toString()) || "{}");
+                });
+                this._statuses = statuses;
                 return $q.when(undefined);
             };
 
             LocalStorageStatusesManager.prototype.postStatuses = function (repoId, pullRequestId, pullRequestStatuses) {
                 this._statuses[pullRequestId] = pullRequestStatuses;
-                var statuses = JSON.parse(localStorage.pullRequestStatuses || "{}");
-                statuses[repoId] = this._statuses;
-                localStorage.pullRequestStatuses = JSON.stringify(statuses);
+                localStorage.setItem("pullRequestStatuses_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(pullRequestStatuses));
             };
 
             return new LocalStorageStatusesManager();
@@ -71,7 +72,10 @@
             ListManager.prototype.decoratePullRequests = function () {
                 var self = this;
                 if (!this._isListOpen()) { return; }
-                statusesManager.getFromServer(this._repoId)
+                var pullRequestIds =
+                    $(".issues-listing .table-list [data-issue-id]")
+                    .map(function(i, e) { return parseInt($(e).attr("data-issue-id"), 10); });
+                statusesManager.getFromServer(this._repoId, pullRequestIds)
                     .then(function () {
                         $(".issues-listing .table-list [data-issue-id]")
                             .each(function (i, element) {
