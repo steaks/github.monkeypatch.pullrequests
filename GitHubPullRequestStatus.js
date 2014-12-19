@@ -42,7 +42,8 @@
             LocalStorageStatusesManager.prototype.getFromServer = function (repoId, pullRequestIds) {
                 var statuses = {};
                 _.each(pullRequestIds, function (pullRequestId) {
-                    statuses[pullRequestId] = JSON.parse(localStorage.getItem("pullRequestStatuses_" + repoId.toString() + "_" +pullRequestId.toString()) || "{}");
+                    var status = JSON.parse(localStorage.getItem("pullRequestStatuses_" + repoId.toString() + "_" +pullRequestId.toString()) || "null");
+                    if (status) { statuses[pullRequestId] = status; }
                 });
                 this._statuses = statuses;
                 return $q.when(undefined);

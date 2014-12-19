@@ -3,7 +3,7 @@
 
   "name": "GitHub Pull Request Statuses",
   "description": "Approve or reject pull requests.",
-  "version": "1.4",
+  "version": "1.5",
   "icons": {
     "128": "codeducky_partial_logo_128x128.png"
   },
