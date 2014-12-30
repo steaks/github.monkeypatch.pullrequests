@@ -3,13 +3,14 @@
 
   "name": "GitHub Pull Request Statuses",
   "description": "Approve or reject pull requests.",
-  "version": "1.5",
+  "version": "1.6.0",
   "icons": {
     "128": "codeducky_partial_logo_128x128.png"
   },
   "content_scripts" : [{
     "matches" : [
-      "https://github.com/*"
+      "https://github.com/*",
+      "https://www.platform.githubenhancements.com/*"
     ],
     "js": [ "jquery-1.11.1.min.js", "lodash.js", "angular.js", "GitHubPullRequestStatus.js" ]
   }]
