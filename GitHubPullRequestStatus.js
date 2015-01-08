@@ -315,7 +315,7 @@
                             self._statusesManager.addReadComment(self._repoId, pullRequestId, dataBodyVersion);
                             self._syncComments(pullRequestId);
                         }
-                    }, 3000);
+                    }, 2000);
                 }
             };
 
