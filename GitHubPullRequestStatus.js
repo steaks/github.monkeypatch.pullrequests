@@ -20,8 +20,12 @@
                     var repo = _.find(repos, function (r) { return r.id === repoId; });
                     if (!repo) { return; }
 
-                    var pullRequestCommentsPromises = _.reduce(pullRequestIds, function (seed, pullRequestId) {
+                    var issueCommentsPromises = _.reduce(pullRequestIds, function (seed, pullRequestId) {
                         seed[pullRequestId] = ghHttp.get(repo.issues_url.replace("{/number}", "/" + pullRequestId + "/comments"));
+                        return seed;
+                    }, {});
+                    var pullRequestCommentsPromises = _.reduce(pullRequestIds, function (seed, pullRequestId) {
+                        seed[pullRequestId] = ghHttp.get(repo.pulls_url.replace("{/number}", "/" + pullRequestId + "/comments"));
                         return seed;
                     }, {});
                     var pullRequestCommitsPromises = _.reduce(pullRequestIds, function (seed, pullRequestId) {
@@ -29,13 +33,15 @@
                         return seed;
                     }, {});
 
-                    var commentsPromise = $q.all(pullRequestCommentsPromises).then(function (pullRequestsComments) { return pullRequestsComments; });
+                    var issueCommentsPromise = $q.all(issueCommentsPromises).then(function (issueComments) { return issueComments; });
+                    var pullRequestCommentsPromise = $q.all(pullRequestCommentsPromises).then(function (pullRequestsComments) { return pullRequestsComments; });
                     var commitsPromise = $q.all(pullRequestCommitsPromises).then(function (pullRequestsCommits) { return pullRequestsCommits; });
 
-                    return $q.all({ comments: commentsPromise, commits: commitsPromise })
+                    return $q.all({ issueComments: issueCommentsPromise, pullRequestComments: pullRequestCommentsPromise, commits: commitsPromise })
                         .then(function (commentsAndCommits) {
-                            _.each(commentsAndCommits.comments, function (comments, pullRequestId) {
-                                self._statuses[pullRequestId] = { users: {} };
+                            _.each(commentsAndCommits.issueComments, function (comments, pullRequestId) {
+                                var mostRecentComment = _.max(commentsAndCommits.pullRequestComments[pullRequestId].concat(comments), function (c) { return new Date(c.updated_at); });
+                                self._statuses[pullRequestId] = { users: {}, mostRecentCommentDatetime: mostRecentComment ? new Date(mostRecentComment.updated_at) : null };
                                 _.each(comments, function (comment) {
                                     var status = self._parseComment(comment);
                                     if (status) {
@@ -54,13 +60,34 @@
                 localStorage.setItem("githubenhancements_pullRequestsInProgress_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify({ commits: commits }));
             };
 
+            StatusesManager.prototype.getReadComments = function (repoId, pullRequestId) {
+                var readCommentsJSON = localStorage.getItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString());
+                return JSON.parse(readCommentsJSON || "[]");
+            };
+
+            StatusesManager.prototype.addReadComment = function (repoId, pullRequestId, comment) {
+                var readComments = this.getReadComments(repoId, pullRequestId);
+                readComments.push(comment);
+                localStorage.setItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(readComments));
+            };
+
+            StatusesManager.prototype.markPullRequestOpened = function (repoId, pullRequestId) {
+                var utcDateTime = new Date().toUTCString();
+                localStorage.setItem("githubenhancements_pullRequestsOpened_" + repoId.toString() + "_" + pullRequestId.toString(), utcDateTime);
+            };
+
+            StatusesManager.prototype.getPullRequestLastOpened = function (repoId, pullRequestId) {
+                var lastOpenedDateString = localStorage.getItem("githubenhancements_pullRequestsOpened_" + repoId.toString() + "_" + pullRequestId.toString());
+                return lastOpenedDateString ? new Date(lastOpenedDateString) : null;
+            };
+
             StatusesManager.prototype._getRepos = function () {
                 var self = this;
                 if (this._repos) {
                     return $q.when(this._repos);
                 }
                 return ghHttp.get("user/repos").then(function (repos) { self._repos = repos; return repos; });
-            }
+            };
 
             StatusesManager.prototype._setInProgressInfo = function (statuses, repoId, pullRequestId, userId, commits) {
                 var inProgressJSON = localStorage.getItem("githubenhancements_pullRequestsInProgress_" + repoId.toString() + "_" + pullRequestId.toString());
@@ -163,7 +190,7 @@
                                 var pullRequestInfo = statuses[pullRequestId];
                                 if (!pullRequestInfo) { return; }
                                 self._renderListItemBackground($element, pullRequestInfo.users[self._userId]);
-                                self._renderListItemMetaInfo($element, pullRequestInfo);
+                                self._renderListItemMetaInfo($element, pullRequestInfo, pullRequestId);
                             });
                     })
                     .finally(function () { self._pullRequestIdsToDecorate = []; });
@@ -184,9 +211,11 @@
                 }
             };
 
-            ListManager.prototype._renderListItemMetaInfo = function ($element, pullRequestInfo) {
+            ListManager.prototype._renderListItemMetaInfo = function ($element, pullRequestInfo, pullRequestId) {
                 var accepts = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.accept; }).length.toString();
                 var rejects = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.reject; }).length.toString();
+                var mostRecentCommentDatetime = pullRequestInfo.mostRecentCommentDatetime;
+                var lastOpenedDatetime = this._statusesManager.getPullRequestLastOpened(this._repoId, pullRequestId);
                 if ($element.find(".issue-meta .enhancements-pull-request-meta-info-container").length === 0) {
                     $element.find(".issue-meta").append("<span class='enhancements-pull-request-meta-info-container'></span>");
                 }
@@ -200,6 +229,11 @@
                         .find(".issue-meta .enhancements-pull-request-meta-info-container")
                         .append("<span>&nbsp;&nbsp; NEW COMMITS</span>");
                 }
+                if (mostRecentCommentDatetime > lastOpenedDatetime) {
+                    $element
+                      .find(".issue-meta .enhancements-pull-request-meta-info-container")
+                      .append("<span>&nbsp;&nbsp; NEW COMMENTS</span>");
+                }
             };
 
             return ListManager;
@@ -208,14 +242,17 @@
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
+                this._userName = config.userName;
                 this._statusesManager = config.statusesManager;
+                this._commentsClickListener = { pullRequestId: null };
+                this._currentPullRequestId = null;
                 this._startPolling();
             }
 
             PullRequestManager.prototype._startPolling = function() {
                 var self = this;
-                this._markInProgress();
-                setInterval(function () { self._markInProgress(); }, 1000);
+                this._syncPullRequest();
+                setInterval(function () { self._syncPullRequest(); }, 1000);
             };
 
             PullRequestManager.prototype._isPullRequestOpen = function () {
@@ -230,12 +267,80 @@
                 return parseInt($("#commits_tab_counter").text(), 10);
             };
 
-            PullRequestManager.prototype._markInProgress = function () {
-                if (!this._isPullRequestOpen()) { return; }
+            PullRequestManager.prototype._syncPullRequest = function () {
+                if (!this._isPullRequestOpen()) {
+                    this._deregisterCommentsClickListener();
+                    return;
+                }
                 var pullRequestId = this._getPullRequestId();
+                if (this._currentPullRequestId !== pullRequestId) { this._markPullRequestOpened(pullRequestId); }
+                this._registerCommentsClickListener(pullRequestId);
+                this._markInProgress(pullRequestId);
+                this._syncComments(pullRequestId);
+            };
+
+            PullRequestManager.prototype._markPullRequestOpened = function (pullRequestId) {
+                this._currentPullRequestId = pullRequestId;
+                this._statusesManager.markPullRequestOpened(this._repoId, pullRequestId);
+            };
+
+            PullRequestManager.prototype._syncComments = function (pullRequestId) {
+                var self = this;
+                var readComments = this._statusesManager.getReadComments(this._repoId, pullRequestId);
+                $("[data-body-version]").each(function (i, e) {
+                    var $e = $(e);
+                    if (self._getCommentUserName($e) === self._userName) { return; }
+                    var dataBodyVersion = $e.attr("data-body-version");
+                    $e.find(".unread-label").remove();
+                    if (readComments.indexOf(dataBodyVersion) === -1) {
+                        $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
+                        $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
+                        self._markReadIfAppropriate(pullRequestId, $e, dataBodyVersion);
+                    }
+                    else {
+                        $e.find(".timeline-comment-header").css("background-color", "");
+                    }
+                });
+            };
+
+            PullRequestManager.prototype._getCommentUserName = function ($element) {
+                return $element.find(".author").text();
+            };
+
+            PullRequestManager.prototype._markReadIfAppropriate = function (pullRequestId, $element, dataBodyVersion) {
+                var self = this;
+                if ($element.visible()) {
+                    setTimeout(function () {
+                        if ($element.visible()) {
+                            self._statusesManager.addReadComment(self._repoId, pullRequestId, dataBodyVersion);
+                            self._syncComments(pullRequestId);
+                        }
+                    }, 3000);
+                }
+            };
+
+            PullRequestManager.prototype._markInProgress = function (pullRequestId) {
                 var commits = this._getCommits();
                 this._statusesManager.markInProgress(this._repoId, pullRequestId, commits);
             };
+
+            PullRequestManager.prototype._registerCommentsClickListener = function (pullRequestId) {
+                var self = this;
+                if (this._commentsClickListener.pullRequestId === pullRequestId) { return; }
+                this._deregisterCommentsClickListener();
+                $(".view-pull-request [data-body-version]").on("click", function (e) {
+                    var dataBodyVersion = $(e.currentTarget).attr("data-body-version");
+                    self._statusesManager.addReadComment(self._repoId, pullRequestId, dataBodyVersion);
+                    self._syncComments(pullRequestId);
+                });
+                this._commentsClickListener = { pullRequestId: pullRequestId };
+            };
+
+            PullRequestManager.prototype._deregisterCommentsClickListener = function () {
+                $(".view-pull-request [data-body-version]").off("click");
+                this._commentsClickListener = { pullRequestId: null };
+            };
+
             return PullRequestManager;
         })
         .factory("parseQueryString", function () {
@@ -332,10 +437,11 @@
             var run = function () {
                 var repoId = parseInt($("#repository_id").val(), 10);
                 var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
+                var userName = $("[name='octolytics-actor-login']").attr("content");
                 if (!repoId) { return; }
                 var statusesManager = new StatusesManager({ userId: userId });
                 var listManager = new ListManager({ userId: userId, repoId: repoId, statusesManager: statusesManager });
-                var pullRequestManager = new PullRequestManager({ userId: userId, repoId: repoId, statusesManager: statusesManager });
+                var pullRequestManager = new PullRequestManager({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
             };
             return { run: run };
         });
