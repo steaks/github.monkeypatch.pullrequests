@@ -1,5 +1,6 @@
 /* global $, _ */
 (function () {
+    "use strict";
     angular.module('core', [])
         .factory("StatusOptions", function () {
             return {
@@ -56,19 +57,56 @@
                 });
             };
 
-            StatusesManager.prototype.markInProgress = function(repoId, pullRequestId, commits) {
-                localStorage.setItem("githubenhancements_pullRequestsInProgress_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify({ commits: commits }));
+            StatusesManager.prototype.markPullRequestCommits = function(repoId, pullRequestId, commits) {
+                localStorage.setItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(commits));
             };
 
-            StatusesManager.prototype.getReadComments = function (repoId, pullRequestId) {
+            StatusesManager.prototype.getPullRequestCommits = function (repoId, pullRequestId) {
+                return localStorage.getItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString());
+            };
+
+            StatusesManager.prototype.markCommitPullRequests = function(repoId, commitHash, pullRequestIds) {
+                localStorage.setItem("githubenhancements_commitPullRequests_" + repoId.toString() + "_" + commitHash, JSON.stringify(pullRequestIds));
+            };
+
+            StatusesManager.prototype.getCommitPullRequests = function (repoId, commitHash) {
+                return localStorage.getItem("githubenhancements_commitPullRequests_" + repoId.toString() + "_" + commitHash);
+            };
+
+            StatusesManager.prototype.getReadCommentsOnPullRequest = function (repoId, pullRequestId, includeCommitComments) {
+                var self = this;
                 var readCommentsJSON = localStorage.getItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString());
-                return JSON.parse(readCommentsJSON || "[]");
+                var pullRequestComments = JSON.parse(readCommentsJSON || "[]");
+                if (!includeCommitComments) {
+                    return pullRequestComments;
+                }
+                var commits = this.getPullRequestCommits(repoId, pullRequestId);
+                var commitComments = _.flatten(commits, function (commitHash) { return self.getReadCommentsOnCommit(repoId, commitHash); });
+                return pullRequestComments.concat(commitComments);
+            };
+
+            StatusesManager.prototype.getReadCommentsOnCommit = function (repoId, commitHash, includeAllPullRequestComments) {
+                var self = this;
+                var readCommentsJSON = localStorage.getItem("githubenhancements_commitReadComments_" + repoId.toString() + "_" + commitHash.toString());
+                var commitComments = JSON.parse(readCommentsJSON || "[]");
+                if (!includeAllPullRequestComments) {
+                    return commitComments;
+                }
+                var pullRequestIds = this.getCommitPullRequests(repoId, commitHash);
+                var pullRequestComments = _.flatten(pullRequestIds, function (pullRequestId) { return self.getReadCommentsOnPullRequest(repoId, pullRequestId); });
+                return _.uniq(commitComments.concat(pullRequestComments));
             };
 
             StatusesManager.prototype.addReadComment = function (repoId, pullRequestId, comment) {
-                var readComments = this.getReadComments(repoId, pullRequestId);
+                var readComments = this.getReadCommentsOnPullRequest(repoId, pullRequestId);
                 readComments.push(comment);
                 localStorage.setItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(readComments));
+            };
+
+            StatusesManager.prototype.addReadCommentOnCommit = function (repoId, commitHash, comment) {
+                var readComments = this.getReadCommentsOnCommit(repoId, commitHash);
+                readComments.push(comment);
+                localStorage.setItem("githubenhancements_commitReadComments_" + repoId.toString() + "_" + commitHash.toString(), JSON.stringify(readComments));
             };
 
             StatusesManager.prototype.markPullRequestOpened = function (repoId, pullRequestId) {
@@ -90,13 +128,12 @@
             };
 
             StatusesManager.prototype._setInProgressInfo = function (statuses, repoId, pullRequestId, userId, commits) {
-                var inProgressJSON = localStorage.getItem("githubenhancements_pullRequestsInProgress_" + repoId.toString() + "_" + pullRequestId.toString());
-                if (!statuses.users[userId] && inProgressJSON) {
+                var seenCommits = localStorage.getItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString());
+                if (!statuses.users[userId] && seenCommits) {
                     statuses.users[userId] = StatusOptions.inProgress;
                 }
-                if (inProgressJSON) {
-                    var seenCommits = JSON.parse(inProgressJSON).commits;
-                    statuses.newCommits = commits > seenCommits;
+                if (seenCommits) {
+                    statuses.newCommits = commits > JSON.parse(seenCommits).length;
                 }
             };
 
@@ -117,6 +154,7 @@
         .factory("ListManager", function (StatusOptions) {
             function ListManager(config) {
                 this._userId = config.userId;
+                this._userName = config.userName;
                 this._repoId = config.repoId;
                 this._statusesManager = config.statusesManager;
                 this._lastCheck = null;
@@ -166,7 +204,6 @@
                 return pullRequestListItems.filter(function (i, e) { return $(e).find(".enhancements-pull-request-meta-info-container").length === 0; });
             };
 
-
             ListManager.prototype._getPullRequestIds = function (pullRequestListItems) {
                 return pullRequestListItems.map(function(i, e) { return parseInt($(e).attr("data-issue-id"), 10); });
             };
@@ -197,7 +234,11 @@
             };
 
             ListManager.prototype._renderListItemBackground = function (element, status) {
-                if (status === StatusOptions.accept) {
+                var pullRequestAuthorUserName = element.find(".opened-by .muted-link").text().trim();
+                if (pullRequestAuthorUserName === this._userName) {
+                    element.css("background-color", "rgba(65, 131, 196, 0.2)");
+                }
+                else if (status === StatusOptions.accept) {
                     element.css("background-color", "rgba(0, 157, 89, 0.2)");
                 }
                 else if (status === StatusOptions.reject) {
@@ -264,7 +305,9 @@
             };
 
             PullRequestManager.prototype._getCommits = function () {
-                return parseInt($("#commits_tab_counter").text(), 10);
+                return $(".commit-links-group [data-clipboard-text]")
+                    .map(function (i, e) { return $(e).attr("data-clipboard-text"); })
+                    .toArray();
             };
 
             PullRequestManager.prototype._syncPullRequest = function () {
@@ -273,10 +316,33 @@
                     return;
                 }
                 var pullRequestId = this._getPullRequestId();
-                if (this._currentPullRequestId !== pullRequestId) { this._markPullRequestOpened(pullRequestId); }
-                this._registerCommentsClickListener(pullRequestId);
-                this._markInProgress(pullRequestId);
+                if (this._currentPullRequestId !== pullRequestId) {
+                    this._markPullRequestOpened(pullRequestId);
+                    this._markPullRequestCommits(pullRequestId);
+                    this._registerCommentsClickListener(pullRequestId);
+                    this._setupPullRequest(pullRequestId);
+                }
                 this._syncComments(pullRequestId);
+            };
+
+            PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
+                this._renderFileNames();
+            };
+
+            PullRequestManager.prototype._renderFileNames = function () {
+                var fileNames = this._getFileNames();
+                var fileNamesContainer = $(".file-names-container");
+                fileNamesContainer.html("");
+                _.each(fileNames, function (name) {
+                    fileNamesContainer.append("<span>" + name + "</span>");
+                });
+            };
+
+            PullRequestManager.prototype._getFileNames = function () {
+                return $(".meta .js-selectable-text").map(function (i, e) {
+                    var fullPath = $(e).text().trim();
+                    return _.last(fullPath.split("/"));
+                });
             };
 
             PullRequestManager.prototype._markPullRequestOpened = function (pullRequestId) {
@@ -286,9 +352,10 @@
 
             PullRequestManager.prototype._syncComments = function (pullRequestId) {
                 var self = this;
-                var readComments = this._statusesManager.getReadComments(this._repoId, pullRequestId);
+                var readComments = this._statusesManager.getReadCommentsOnPullRequest(this._repoId, pullRequestId, /*includeCommitComments*/true);
                 $("[data-body-version]").each(function (i, e) {
                     var $e = $(e);
+                    if ($e.css("display") === "none") { return; }
                     if (self._getCommentUserName($e) === self._userName) { return; }
                     var dataBodyVersion = $e.attr("data-body-version");
                     $e.find(".unread-label").remove();
@@ -304,7 +371,8 @@
             };
 
             PullRequestManager.prototype._getCommentUserName = function ($element) {
-                return $element.find(".author").text();
+                //return $element.find(".author").text();
+                return "NOOP";
             };
 
             PullRequestManager.prototype._markReadIfAppropriate = function (pullRequestId, $element, dataBodyVersion) {
@@ -319,9 +387,9 @@
                 }
             };
 
-            PullRequestManager.prototype._markInProgress = function (pullRequestId) {
+            PullRequestManager.prototype._markPullRequestCommits = function (pullRequestId) {
                 var commits = this._getCommits();
-                this._statusesManager.markInProgress(this._repoId, pullRequestId, commits);
+                this._statusesManager.markPullRequestCommits(this._repoId, pullRequestId, commits);
             };
 
             PullRequestManager.prototype._registerCommentsClickListener = function (pullRequestId) {
@@ -342,6 +410,125 @@
             };
 
             return PullRequestManager;
+        })
+        .factory("CommitManager", function () {
+            function CommitManager(config) {
+                this._repoId = config.repoId;
+                this._userId = config.userId;
+                this._userName = config.userName;
+                this._statusesManager = config.statusesManager;
+                this._commentsClickListener = { commitHash: null };
+                this._currentCommitHash = null;
+                this._startPolling();
+            }
+
+            CommitManager.prototype._startPolling = function () {
+                var self = this;
+                this._syncCommit();
+                setInterval(function () { self._syncCommit(); }, 1000);
+            };
+
+            CommitManager.prototype._syncCommit = function () {
+                if (!this._isCommitOpen()) {
+                    this._deregisterCommentsClickListener();
+                    return;
+                }
+                var commitHash = this._getCommitHash();
+                if (this._currentCommitHash !== commitHash) {
+                    this._markCommitOpened(commitHash);
+                    this._markCommitPullRequests(commitHash);
+                    this._registerCommentsClickListener(commitHash);
+                    this._setupCommit(commitHash);
+                }
+                this._syncComments(commitHash);
+            };
+
+            CommitManager.prototype._markCommitOpened = function (commitHash) {
+                this._currentCommitHash = commitHash;
+            };
+
+            CommitManager.prototype._markCommitPullRequests = function (commitHash) {
+                var pullRequestIds = this._getPullRequestIds();
+                this._statusesManager.markCommitPullRequests(this._repoId, commitHash, pullRequestIds);
+            };
+
+            CommitManager.prototype._getPullRequestIds = function () {
+                return $(".pull-request a")
+                    .map(function (i, e) {
+                        var $e = $(e);
+                        var pullRequestId = $e.text().replace("#", "");
+                        return parseInt(pullRequestId, 10);
+                    })
+                    .toArray();
+            };
+
+            CommitManager.prototype._setupCommit = function (commitHash) {
+                //TODO We'll probably need to link pull requets to commits here
+            };
+
+            CommitManager.prototype._registerCommentsClickListener = function (commitHash) {
+                var self = this;
+                if (this._commentsClickListener.commitHash === commitHash) { return; }
+                this._deregisterCommentsClickListener();
+                $("[data-body-version]").on("click", function (e) {
+                    var dataBodyVersion = $(e.currentTarget).attr("data-body-version");
+                    self._statusesManager.addReadCommentOnCommit(self._repoId, commitHash, dataBodyVersion);
+                    self._syncComments(commitHash);
+                });
+                this._commentsClickListener = { commitHash: commitHash };
+            };
+
+            CommitManager.prototype._syncComments = function (commitHash) {
+                var self = this;
+                var readComments = this._statusesManager.getReadCommentsOnCommit(this._repoId, commitHash, /*includeCommitComment*/true);
+                $("[data-body-version]").each(function (i, e) {
+                    var $e = $(e);
+                    if ($e.css("display") === "none") { return; }
+                    if (self._getCommentUserName($e) === self._userName) { return; }
+                    var dataBodyVersion = $e.attr("data-body-version");
+                    $e.find(".unread-label").remove();
+                    if (readComments.indexOf(dataBodyVersion) === -1) {
+                        $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
+                        $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
+                        self._markReadIfAppropriate(commitHash, $e, dataBodyVersion);
+                    }
+                    else {
+                        $e.find(".timeline-comment-header").css("background-color", "");
+                    }
+                });
+            };
+
+            CommitManager.prototype._markReadIfAppropriate = function (commitHash, $element, dataBodyVersion) {
+                var self = this;
+                if ($element.visible()) {
+                    setTimeout(function () {
+                        if ($element.visible()) {
+                            self._statusesManager.addReadCommentOnCommit(self._repoId, commitHash, dataBodyVersion);
+                            self._syncComments(commitHash);
+                        }
+                    }, 2000);
+                }
+            };
+
+            CommitManager.prototype._getCommentUserName = function ($element) {
+                //return $element.find(".author").text();
+                return "NOOP";
+            };
+
+            CommitManager.prototype._getCommitHash = function () {
+                return $(".full-commit span.js-selectable-text").text();
+            };
+
+            CommitManager.prototype._isCommitOpen = function () {
+                return $(".full-commit").length !== 0;
+            };
+
+            CommitManager.prototype._deregisterCommentsClickListener = function () {
+                $("[data-body-version]").off("click");
+                this._commentsClickListener = { commitHash: null };
+            };
+
+            return CommitManager;
         })
         .factory("parseQueryString", function () {
             return function () {
@@ -433,21 +620,26 @@
 
             return new GHHttp();
         })
-        .factory("main", function (ListManager, PullRequestManager, ghHttp, StatusesManager) {
+        .factory("main", function (ListManager, PullRequestManager, ghHttp, StatusesManager, CommitManager) {
             var run = function () {
                 var repoId = parseInt($("#repository_id").val(), 10);
                 var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
                 var userName = $("[name='octolytics-actor-login']").attr("content");
                 if (!repoId) { return; }
                 var statusesManager = new StatusesManager({ userId: userId });
-                var listManager = new ListManager({ userId: userId, repoId: repoId, statusesManager: statusesManager });
+                var listManager = new ListManager({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
                 var pullRequestManager = new PullRequestManager({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                var commitManager = new CommitManager({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                window.destroyGithubEnhancementsStorage = function () {
+                    var keyStart = "githubenhancements";
+                    _(localStorage)
+                        .keys()
+                        .filter(function (k) { return k.slice(0, keyStart.length) === keyStart } )
+                        .each(function (k) { localStorage.removeItem(k); });
+                };
             };
             return { run: run };
         });
-
-    angular.injector(['ng', 'core']).invoke(function (main) {
-        main.run();
-    })
+    angular.injector(['ng', 'core']).invoke(function (main) { main.run(); });
 })();
 
