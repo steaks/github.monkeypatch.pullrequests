@@ -236,7 +236,7 @@
             ListManager.prototype._renderListItemBackground = function (element, status) {
                 var pullRequestAuthorUserName = element.find(".opened-by .muted-link").text().trim();
                 if (pullRequestAuthorUserName === this._userName) {
-                    element.css("background-color", "rgba(65, 131, 196, 0.2)");
+                    //element.css("background-color", "rgba(65, 131, 196, 0.2)");
                 }
                 else if (status === StatusOptions.accept) {
                     element.css("background-color", "rgba(0, 157, 89, 0.2)");
@@ -279,7 +279,7 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function () {
+        .factory("PullRequestManager", function ($compile, $timeout) {
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -326,6 +326,7 @@
             };
 
             PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
+                this._renderFilesContainer();
                 this._renderFileNames();
             };
 
@@ -336,6 +337,59 @@
                 _.each(fileNames, function (name) {
                     fileNamesContainer.append("<span>" + name + "</span>");
                 });
+            };
+
+            PullRequestManager.prototype._renderFilesContainer = function () {
+                var css = document.createElement("style");
+                css.type = "text/css";
+                css.innerHTML =
+                    ".ghe__sidebar {" +
+                    "    position: absolute;" +
+                    "    width: 0px;" +
+                    "    background-color: rgb(247, 247, 247); border-right: 1px solid rgb(221, 221, 221);" +
+                    "    z-index: 1;" +
+                    "}" +
+                    ".ghe__sidebar-header {" +
+                    "    background-color: rgb(243, 243, 243);" +
+                    "    background-image: linear-gradient(rgb(249, 249, 249), rgb(243, 243, 243));" +
+                    "    background-repeat: repeat-x;" +
+                    "    height: 49px;" +
+                    "    border-bottom: 1px solid rgb(229, 229, 229);" +
+                    "}" +
+                    ".ghe__files {" +
+                    "    display: flex;" +
+                    "}" +
+                    ".ghe__file-icon {" +
+                    "    width: 17px;" +
+                    "    margin-right: 2px;" +
+                    "    margin-left: 10px;" +
+                    "    color: #777;" +
+                    "}";
+                document.body.appendChild(css);
+
+                var sidebar =
+                    "<div class='ghe__sidebar'>" +
+                    "    <div class='ghe__sidebar-header'>" +
+                    "        <div class='ghe__sidebar-files'>" +
+                    "        </div>" +
+                    "    </div>" +
+                    "</div>";
+                var $sidebar = $compile(sidebar)({});
+                var $container = $(".container");
+                var $body = $("body");
+                var containerNewMarginLeft = parseInt($container.css("margin-left"), 10) + (255 / 2);
+                $sidebar.height($body.height());
+                $body.prepend($sidebar);
+                $timeout(function () {
+                    //$wrapper.animate({ paddingLeft: "255px"/*, width: newWrapperWidth.toString() + "px"*/ }, { duration: 2000 });
+                    $container.animate({ marginLeft: containerNewMarginLeft.toString() + "px" }, { duration: 2000 });
+                    $sidebar.animate({ width: "254px" }, {
+                        complete: function () {
+                            $sidebar.height($body.height());
+                        },
+                        duration: 2000
+                    });
+                }, 1000);
             };
 
             PullRequestManager.prototype._getFileNames = function () {
