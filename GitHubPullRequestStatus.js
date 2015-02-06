@@ -332,10 +332,16 @@
 
             PullRequestManager.prototype._renderFileNames = function () {
                 var fileNames = this._getFileNames();
-                var fileNamesContainer = $(".file-names-container");
-                fileNamesContainer.html("");
+                var $filesList = $(".ghe__files");
+                $filesList.html("");
                 _.each(fileNames, function (name) {
-                    fileNamesContainer.append("<span>" + name + "</span>");
+                    $filesList.append(
+                    "<div>" +
+                    "    <div class='ghe__file-icon'>" +
+                    "        <span class='octicon octicon-file-text'></span>" +
+                    "    </div>" +
+                    "    <a href='/'>" + name + "</a>" +
+                    "</div>");
                 });
             };
 
@@ -375,14 +381,15 @@
                     "    </div>" +
                     "</div>";
                 var $sidebar = $compile(sidebar)({});
-                var $container = $(".container");
                 var $body = $("body");
-                var containerNewMarginLeft = parseInt($container.css("margin-left"), 10) + (255 / 2);
+                var $footerContainer = $("body > .container");
+                var $wrapper = $("body > .wrapper");
+                var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
                 $sidebar.height($body.height());
                 $body.prepend($sidebar);
                 $timeout(function () {
-                    //$wrapper.animate({ paddingLeft: "255px"/*, width: newWrapperWidth.toString() + "px"*/ }, { duration: 2000 });
-                    $container.animate({ marginLeft: containerNewMarginLeft.toString() + "px" }, { duration: 2000 });
+                    $wrapper.animate({ marginLeft: "255px" }, { duration: 2000 });
+                    $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: 2000 });
                     $sidebar.animate({ width: "254px" }, {
                         complete: function () {
                             $sidebar.height($body.height());
