@@ -279,7 +279,7 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function ($compile, $timeout) {
+        .factory("PullRequestManager", function ($compile, $timeout, $q) {
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -326,31 +326,34 @@
             };
 
             PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
-                this._renderFilesContainer();
-                this._renderFileNames();
+                var self = this;
+                this._renderFilesContainer().then(function () {
+                  self._renderFileNames();
+                });
             };
 
             PullRequestManager.prototype._renderFileNames = function () {
-                var fileNames = this._getFileNames();
-                var $filesList = $(".ghe__files");
+                var files = this._getFiles();
+                var $filesList = $(".ghe__sidebar-files");
                 $filesList.html("");
-                _.each(fileNames, function (name) {
+                _.each(files, function (file) {
                     $filesList.append(
-                    "<div>" +
+                    "<div class='ghe__file-wrapper'>" +
                     "    <div class='ghe__file-icon'>" +
                     "        <span class='octicon octicon-file-text'></span>" +
                     "    </div>" +
-                    "    <a href='/'>" + name + "</a>" +
+                    "    <a href='" + file.href + "'>" + file.name + "</a>" +
                     "</div>");
                 });
             };
 
             PullRequestManager.prototype._renderFilesContainer = function () {
+                var deferred = $q.defer();
                 var css = document.createElement("style");
                 css.type = "text/css";
                 css.innerHTML =
                     ".ghe__sidebar {" +
-                    "    position: absolute;" +
+                    "    position: fixed;" +
                     "    width: 0px;" +
                     "    background-color: rgb(247, 247, 247); border-right: 1px solid rgb(221, 221, 221);" +
                     "    z-index: 1;" +
@@ -362,22 +365,28 @@
                     "    height: 49px;" +
                     "    border-bottom: 1px solid rgb(229, 229, 229);" +
                     "}" +
-                    ".ghe__files {" +
+                    ".ghe__sidebar-files {" +
                     "    display: flex;" +
+                    "    flex-direction: column;" +
                     "}" +
                     ".ghe__file-icon {" +
                     "    width: 17px;" +
                     "    margin-right: 2px;" +
                     "    margin-left: 10px;" +
                     "    color: #777;" +
+                    "}" +
+                    ".ghe__file-wrapper {" +
+                    "    display: flex;" +
+                    "    flex-direction: row;" +
+                    "    margin-top: 10px;" +
                     "}";
                 document.body.appendChild(css);
 
                 var sidebar =
                     "<div class='ghe__sidebar'>" +
                     "    <div class='ghe__sidebar-header'>" +
-                    "        <div class='ghe__sidebar-files'>" +
-                    "        </div>" +
+                    "    </div>" +
+                    "    <div class='ghe__sidebar-files'>" +
                     "    </div>" +
                     "</div>";
                 var $sidebar = $compile(sidebar)({});
@@ -388,21 +397,24 @@
                 $sidebar.height($body.height());
                 $body.prepend($sidebar);
                 $timeout(function () {
-                    $wrapper.animate({ marginLeft: "255px" }, { duration: 2000 });
-                    $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: 2000 });
+                    $wrapper.animate({ marginLeft: "255px" }, { duration: 1000 });
+                    $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: 1000 });
                     $sidebar.animate({ width: "254px" }, {
                         complete: function () {
                             $sidebar.height($body.height());
+                            deferred.resolve();
                         },
-                        duration: 2000
+                        duration: 1000
                     });
                 }, 1000);
+                return deferred.promise;
             };
 
-            PullRequestManager.prototype._getFileNames = function () {
-                return $(".meta .js-selectable-text").map(function (i, e) {
-                    var fullPath = $(e).text().trim();
-                    return _.last(fullPath.split("/"));
+            PullRequestManager.prototype._getFiles = function () {
+                return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
+                    var $e = $(e);
+                    var fullPath = $e.text().trim();
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href") };
                 });
             };
 
