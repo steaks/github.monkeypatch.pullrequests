@@ -392,6 +392,9 @@
                 var $sidebar = $compile(sidebar)({});
                 var $body = $("body");
                 var $footerContainer = $("body > .container");
+                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
+                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
+                $footerContainer.attr("style", "width: 980px !important");
                 var $wrapper = $("body > .wrapper");
                 var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
                 $sidebar.height($body.height());
