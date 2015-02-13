@@ -279,7 +279,7 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function ($compile, $timeout, $q) {
+        .factory("PullRequestManager", function ($compile, $timeout, $q, $rootScope) {
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -287,6 +287,10 @@
                 this._statusesManager = config.statusesManager;
                 this._commentsClickListener = { pullRequestId: null };
                 this._currentPullRequestId = null;
+                this._originalFooterMarginLeft = null;
+                this._isOpen = false;
+                this._animationDuration = 1000;
+                this._clean = true;
                 this._startPolling();
             }
 
@@ -312,9 +316,10 @@
 
             PullRequestManager.prototype._syncPullRequest = function () {
                 if (!this._isPullRequestOpen()) {
-                    this._deregisterCommentsClickListener();
+                    this._cleanup();
                     return;
                 }
+                this._clean = false;
                 var pullRequestId = this._getPullRequestId();
                 if (this._currentPullRequestId !== pullRequestId) {
                     this._markPullRequestOpened(pullRequestId);
@@ -327,9 +332,9 @@
 
             PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
                 var self = this;
-                this._renderFilesContainer().then(function () {
-                  self._renderFileNames();
-                });
+                this._renderFilesContainer();
+                this._renderFileNames();
+                $timeout(function () { self._openFilesContainer(); });
             };
 
             PullRequestManager.prototype._renderFileNames = function () {
@@ -340,84 +345,103 @@
                     $filesList.append(
                     "<div class='ghe__file-wrapper'>" +
                     "    <div class='ghe__file-icon'>" +
-                    "        <span class='octicon octicon-file-text'></span>" +
+                            file.$diffIcon[0].outerHTML +
                     "    </div>" +
                     "    <a href='" + file.href + "'>" + file.name + "</a>" +
                     "</div>");
                 });
             };
 
-            PullRequestManager.prototype._renderFilesContainer = function () {
-                var deferred = $q.defer();
-                var css = document.createElement("style");
-                css.type = "text/css";
-                css.innerHTML =
-                    ".ghe__sidebar {" +
-                    "    position: fixed;" +
-                    "    width: 0px;" +
-                    "    background-color: rgb(247, 247, 247); border-right: 1px solid rgb(221, 221, 221);" +
-                    "    z-index: 1;" +
-                    "}" +
-                    ".ghe__sidebar-header {" +
-                    "    background-color: rgb(243, 243, 243);" +
-                    "    background-image: linear-gradient(rgb(249, 249, 249), rgb(243, 243, 243));" +
-                    "    background-repeat: repeat-x;" +
-                    "    height: 49px;" +
-                    "    border-bottom: 1px solid rgb(229, 229, 229);" +
-                    "}" +
-                    ".ghe__sidebar-files {" +
-                    "    display: flex;" +
-                    "    flex-direction: column;" +
-                    "}" +
-                    ".ghe__file-icon {" +
-                    "    width: 17px;" +
-                    "    margin-right: 2px;" +
-                    "    margin-left: 10px;" +
-                    "    color: #777;" +
-                    "}" +
-                    ".ghe__file-wrapper {" +
-                    "    display: flex;" +
-                    "    flex-direction: row;" +
-                    "    margin-top: 10px;" +
-                    "}";
-                document.body.appendChild(css);
+            PullRequestManager.prototype._wipeFileNames = function () {
+                var $filesList = $(".ghe__sidebar-files");
+                $filesList.html("");
+            };
 
+            PullRequestManager.prototype._renderFilesContainer = function () {
+                if ($(".ghe__sidebar").length) { return; }
+                var self = this;
                 var sidebar =
                     "<div class='ghe__sidebar'>" +
+                    "    <div class='ghe__chevron ghe__open-close-button' ng-click='toggleSidebar()'></div>" +
                     "    <div class='ghe__sidebar-header'>" +
+                    "        <div class='ghe__title'>Pull Request Manager</div>" +
                     "    </div>" +
-                    "    <div class='ghe__sidebar-files'>" +
+                    "    <div class='ghe__sidebar-files-wrapper'>" +
+                    "        <div class='ghe__sidebar-files'>" +
+                    "        </div>" +
                     "    </div>" +
                     "</div>";
-                var $sidebar = $compile(sidebar)({});
+                var scope = $rootScope.$new();
+                scope.toggleSidebar = function () {
+                    if (self._isOpen) {
+                        self._closeFilesContainer();
+                    } else {
+                        self._openFilesContainer();
+                    }
+                };
+                var $sidebar = $compile(sidebar)(scope);
                 var $body = $("body");
+                $body.prepend($sidebar);
+            };
+
+            PullRequestManager.prototype._openFilesContainer = function () {
+                if (this._isOpen) { return; }
+                var self = this;
+                this._isOpen = true;
+                var $sidebar = $(".ghe__sidebar");
                 var $footerContainer = $("body > .container");
+                var $openCloseButton = $(".ghe__open-close-button");
                 //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
-                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
+                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's width.
                 $footerContainer.attr("style", "width: 980px !important");
                 var $wrapper = $("body > .wrapper");
+                this._originalFooterMarginLeft = $footerContainer.css("marginLeft");
                 var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
-                $sidebar.height($body.height());
-                $body.prepend($sidebar);
-                $timeout(function () {
-                    $wrapper.animate({ marginLeft: "255px" }, { duration: 1000 });
-                    $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: 1000 });
-                    $sidebar.animate({ width: "254px" }, {
-                        complete: function () {
-                            $sidebar.height($body.height());
-                            deferred.resolve();
-                        },
-                        duration: 1000
-                    });
-                }, 1000);
+                $openCloseButton.animate({ left: "-41px" }, {
+                    duration: 500,
+                    complete: function () {
+                        $openCloseButton.removeClass("right").addClass("left");
+                        $openCloseButton.animate({ left: "212px" }, { duration: self._animationDuration });
+                        $wrapper.animate({ marginLeft: "255px" }, { duration: self._animationDuration });
+                        $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: self._animationDuration });
+                        $sidebar.animate({ left: "0px" }, { duration: self._animationDuration });
+                    }
+                });
+            };
+
+            PullRequestManager.prototype._closeFilesContainer = function () {
+                if (!this._isOpen) { return; }
+                this._isOpen = false;
+                var deferred = $q.defer();
+                var self = this;
+                var $sidebar = $(".ghe__sidebar");
+                var $footerContainer = $("body > .container");
+                var $openCloseButton = $(".ghe__open-close-button");
+                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
+                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
+                var $wrapper = $("body > .wrapper");
+                $wrapper.animate({ marginLeft: "0px" }, { duration: this._animationDuration });
+                $footerContainer.animate({ marginLeft: self._originalFooterMarginLeft }, { duration: this._animationDuration });
+                $sidebar.animate({ left: "-254px" }, { duration: this._animationDuration });
+                $openCloseButton.animate({ left: "-41px" }, {
+                    duration: this._animationDuration,
+                    complete: function () {
+                         $openCloseButton.removeClass("left").addClass("right");
+                         $openCloseButton.animate({ left: "10px" }, {
+                             duration: 500,
+                             complete: function () { deferred.resolve(); }
+                         });
+                    }
+                });
                 return deferred.promise;
             };
 
             PullRequestManager.prototype._getFiles = function () {
                 return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
                     var $e = $(e);
+                    var $diffIcon = $e.siblings(".octicon").clone();
                     var fullPath = $e.text().trim();
-                    return { name: _.last(fullPath.split("/")), href: $e.attr("href") };
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), $diffIcon: $diffIcon };
                 });
             };
 
@@ -447,8 +471,7 @@
             };
 
             PullRequestManager.prototype._getCommentUserName = function ($element) {
-                //return $element.find(".author").text();
-                return "NOOP";
+                return $element.find(".author").text();
             };
 
             PullRequestManager.prototype._markReadIfAppropriate = function (pullRequestId, $element, dataBodyVersion) {
@@ -478,6 +501,17 @@
                     self._syncComments(pullRequestId);
                 });
                 this._commentsClickListener = { pullRequestId: pullRequestId };
+            };
+
+            PullRequestManager.prototype._cleanup = function () {
+                if (this._clean) { return; }
+                var self = this;
+                this._currentPullRequestId = null;
+                this._deregisterCommentsClickListener();
+                this._closeFilesContainer().then(function () {
+                    self._wipeFileNames();
+                });
+                this._clean = true;
             };
 
             PullRequestManager.prototype._deregisterCommentsClickListener = function () {
@@ -587,8 +621,7 @@
             };
 
             CommitManager.prototype._getCommentUserName = function ($element) {
-                //return $element.find(".author").text();
-                return "NOOP";
+                return $element.find(".author").text();
             };
 
             CommitManager.prototype._getCommitHash = function () {

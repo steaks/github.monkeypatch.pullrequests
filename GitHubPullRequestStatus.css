@@ -1,0 +1,103 @@
+.ghe__sidebar {
+    position: fixed;
+    width: 254px;
+    height: 100%;
+    background-color: rgb(247, 247, 247);
+    border-right: 1px solid rgb(221, 221, 221);
+    z-index: 1;
+    left: -254px;
+}
+
+.ghe__sidebar-header {
+    background-color: rgb(243, 243, 243);
+    background-image: linear-gradient(rgb(249, 249, 249), rgb(243, 243, 243));
+    background-repeat: repeat-x;
+    height: 49px;
+    border-bottom: 1px solid rgb(229, 229, 229);
+    display: flex;
+    padding-left: 10px;
+}
+
+.ghe__title {
+    font-size: 16px;
+    margin-top: auto;
+    margin-bottom: auto;
+}
+
+.ghe__sidebar-files-wrapper {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    overflow: auto;
+}
+
+.ghe__sidebar-files {
+    display: flex;
+    flex-direction: column;
+}
+
+.ghe__file-icon {
+    margin-right: 10px;
+    margin-left: 10px;
+}
+
+.ghe__file-icon .octicon-diff-removed {
+    color: #bd2c00
+}
+
+.ghe__file-icon .octicon-diff-renamed {
+    color: #677a85
+}
+
+.ghe__file-icon .octicon-diff-modified {
+    color: #d0b44c
+}
+
+.ghe__file-icon .octicon-diff-added {
+    color: #6cc644
+}
+
+.ghe__file-wrapper {
+    display: flex;
+    flex-direction: row;
+    margin-top: 10px;
+}
+
+.ghe__chevron::before {
+    border-style: solid;
+    border-width: 0.25em 0.25em 0 0;
+    content: '';
+    display: inline-block;
+    height: 0.45em;
+    left: 0.15em;
+    position: relative;
+    top: 0.15em;
+    transform: rotate(-45deg);
+    vertical-align: top;
+    width: 0.45em;
+}
+
+.ghe__chevron.right:before {
+    left: 0;
+    transform: rotate(45deg);
+}
+
+.ghe__chevron.left:before {
+    left: 0.25em;
+    transform: rotate(-135deg);
+}
+
+.ghe__open-close-button {
+    position: fixed;
+    top: 8px;
+    left: -41px;
+    padding-top: 8px;
+    padding-bottom: 4px;
+    padding-left: 10px;
+    padding-right: 12px;
+    text-align: center;
+    box-shadow: 0px 0.5px rgba(0,0,0,0.4);
+    border-radius: 14px;
+    background-color: rgb(230,230,230);
+    cursor: pointer;
+}
