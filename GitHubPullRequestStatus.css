@@ -41,6 +41,10 @@
     margin-left: 10px;
 }
 
+.ghe__file-link {
+    cursor: pointer;
+}
+
 .ghe__file-icon .octicon-diff-removed {
     color: #bd2c00
 }

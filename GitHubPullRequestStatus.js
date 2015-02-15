@@ -279,7 +279,7 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function ($compile, $timeout, $q, $rootScope) {
+        .factory("PullRequestManager", function ($compile, $timeout, $q, $rootScope, $sce) {
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -291,6 +291,7 @@
                 this._isOpen = false;
                 this._animationDuration = 1000;
                 this._clean = true;
+                this._scope = null;
                 this._startPolling();
             }
 
@@ -333,32 +334,18 @@
             PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
                 var self = this;
                 this._renderFilesContainer();
-                this._renderFileNames();
                 $timeout(function () { self._openFilesContainer(); });
             };
 
-            PullRequestManager.prototype._renderFileNames = function () {
-                var files = this._getFiles();
-                var $filesList = $(".ghe__sidebar-files");
-                $filesList.html("");
-                _.each(files, function (file) {
-                    $filesList.append(
-                    "<div class='ghe__file-wrapper'>" +
-                    "    <div class='ghe__file-icon'>" +
-                            file.$diffIcon[0].outerHTML +
-                    "    </div>" +
-                    "    <a href='" + file.href + "'>" + file.name + "</a>" +
-                    "</div>");
-                });
-            };
-
             PullRequestManager.prototype._wipeFileNames = function () {
-                var $filesList = $(".ghe__sidebar-files");
-                $filesList.html("");
+                this._scope.files = [];
             };
 
             PullRequestManager.prototype._renderFilesContainer = function () {
-                if ($(".ghe__sidebar").length) { return; }
+                if ($(".ghe__sidebar").length) {
+                    this._scope.files = this._getFiles();
+                    return;
+                }
                 var self = this;
                 var sidebar =
                     "<div class='ghe__sidebar'>" +
@@ -368,18 +355,29 @@
                     "    </div>" +
                     "    <div class='ghe__sidebar-files-wrapper'>" +
                     "        <div class='ghe__sidebar-files'>" +
+                    "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
+                    "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
+                    "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a>" +
+                    "            </div>" +
                     "        </div>" +
                     "    </div>" +
                     "</div>";
-                var scope = $rootScope.$new();
-                scope.toggleSidebar = function () {
+                this._scope = $rootScope.$new();
+                this._scope.toggleSidebar = function () {
                     if (self._isOpen) {
                         self._closeFilesContainer();
                     } else {
                         self._openFilesContainer();
                     }
                 };
-                var $sidebar = $compile(sidebar)(scope);
+                this._scope.files = this._getFiles();
+                this._scope.openFile = function(href) {
+                  if (window.location.pathname.indexOf("files") === -1) {
+                    $("[data-container-id='files_bucket']")[0].click();
+                  }
+                  window.location.hash = href;
+                };
+                var $sidebar = $compile(sidebar)(this._scope);
                 var $body = $("body");
                 $body.prepend($sidebar);
             };
@@ -409,14 +407,25 @@
                 });
             };
 
-            PullRequestManager.prototype._closeFilesContainer = function () {
-                if (!this._isOpen) { return; }
-                this._isOpen = false;
-                var deferred = $q.defer();
+            PullRequestManager.prototype._closeFilesContainer = function (permanently) {
                 var self = this;
+                var deferred = $q.defer();
+                var $openCloseButton = $(".ghe__open-close-button");
+                if (!this._isOpen) {
+                    if (permanently) {
+                        $openCloseButton.animate({ left: "-41px" }, {
+                            duration: 500,
+                            complete: function () {
+                                deferred.resolve();
+                            }
+                        });
+                    } else {
+                        deferred.resolve();
+                    }
+                }
+                this._isOpen = false;
                 var $sidebar = $(".ghe__sidebar");
                 var $footerContainer = $("body > .container");
-                var $openCloseButton = $(".ghe__open-close-button");
                 //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
                 //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
                 var $wrapper = $("body > .wrapper");
@@ -426,11 +435,15 @@
                 $openCloseButton.animate({ left: "-41px" }, {
                     duration: this._animationDuration,
                     complete: function () {
-                         $openCloseButton.removeClass("left").addClass("right");
-                         $openCloseButton.animate({ left: "10px" }, {
-                             duration: 500,
-                             complete: function () { deferred.resolve(); }
-                         });
+                        $openCloseButton.removeClass("left").addClass("right");
+                        if (!permanently) {
+                            $openCloseButton.animate({left: "10px"}, {
+                                duration: 500,
+                                complete: function () { deferred.resolve(); }
+                            });
+                        } else {
+                            deferred.resolve();
+                        }
                     }
                 });
                 return deferred.promise;
@@ -440,8 +453,9 @@
                 return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
                     var $e = $(e);
                     var $diffIcon = $e.siblings(".octicon").clone();
+                    var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
                     var fullPath = $e.text().trim();
-                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), $diffIcon: $diffIcon };
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon };
                 });
             };
 
@@ -508,7 +522,7 @@
                 var self = this;
                 this._currentPullRequestId = null;
                 this._deregisterCommentsClickListener();
-                this._closeFilesContainer().then(function () {
+                this._closeFilesContainer(/*permanently*/ true).then(function () {
                     self._wipeFileNames();
                 });
                 this._clean = true;
