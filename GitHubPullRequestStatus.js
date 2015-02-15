@@ -9,6 +9,140 @@
                 inProgress: 3
             }
         })
+        .factory("sidebar", function ($q, $rootScope, $sce, $compile) {
+            function Sidebar() {
+                this._scope = null;
+                this._isOpen = false;
+                this._animationDuration = 1000;
+            }
+
+            Sidebar.prototype.open = function (newFiles) {
+                if (newFiles) { this._renderSidebar(); }
+                if (this._isOpen) { return; }
+                var self = this;
+                this._isOpen = true;
+                var $sidebar = $(".ghe__sidebar");
+                var $footerContainer = $("body > .container");
+                var $openCloseButton = $(".ghe__open-close-button");
+                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
+                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's width.
+                $footerContainer.attr("style", "width: 980px !important");
+                var $wrapper = $("body > .wrapper");
+                this._originalFooterMarginLeft = $footerContainer.css("marginLeft");
+                var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
+                $openCloseButton.animate({ left: "-41px" }, {
+                    duration: 500,
+                    complete: function () {
+                        $openCloseButton.removeClass("right").addClass("left");
+                        $openCloseButton.animate({ left: "212px" }, { duration: self._animationDuration });
+                        $wrapper.animate({ marginLeft: "255px" }, { duration: self._animationDuration });
+                        $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: self._animationDuration });
+                        $sidebar.animate({ left: "0px" }, { duration: self._animationDuration });
+                    }
+                });
+            };
+
+            Sidebar.prototype.close = function (permanently) {
+                var self = this;
+                var deferred = $q.defer();
+                var $openCloseButton = $(".ghe__open-close-button");
+                if (!this._isOpen) {
+                    if (permanently) {
+                        $openCloseButton.animate({ left: "-41px" }, {
+                            duration: 500,
+                            complete: function () {
+                                self._clearFiles();
+                                deferred.resolve();
+                            }
+                        });
+                    } else {
+                        deferred.resolve();
+                    }
+                }
+                this._isOpen = false;
+                var $sidebar = $(".ghe__sidebar");
+                var $footerContainer = $("body > .container");
+                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
+                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
+                var $wrapper = $("body > .wrapper");
+                $wrapper.animate({ marginLeft: "0px" }, { duration: this._animationDuration });
+                $footerContainer.animate({ marginLeft: self._originalFooterMarginLeft }, { duration: this._animationDuration });
+                $sidebar.animate({ left: "-254px" }, { duration: this._animationDuration });
+                $openCloseButton.animate({ left: "-41px" }, {
+                    duration: this._animationDuration,
+                    complete: function () {
+                        $openCloseButton.removeClass("left").addClass("right");
+                        if (!permanently) {
+                            $openCloseButton.animate({left: "10px"}, {
+                                duration: 500,
+                                complete: function () { deferred.resolve(); }
+                            });
+                        } else {
+                            self._clearFiles();
+                            deferred.resolve();
+                        }
+                    }
+                });
+                return deferred.promise;
+            };
+
+            Sidebar.prototype._clearFiles = function () {
+                this._scope.files = [];
+            };
+
+            Sidebar.prototype._renderSidebar = function () {
+                if ($(".ghe__sidebar").length) {
+                    this._scope.files = this._getFiles();
+                    return;
+                }
+                var self = this;
+                var sidebar =
+                    "<div class='ghe__sidebar'>" +
+                    "    <div class='ghe__chevron ghe__open-close-button' ng-click='toggleSidebar()'></div>" +
+                    "    <div class='ghe__sidebar-header'>" +
+                    "        <div class='ghe__title'>Pull Request Manager</div>" +
+                    "    </div>" +
+                    "    <div class='ghe__sidebar-files-wrapper'>" +
+                    "        <div class='ghe__sidebar-files'>" +
+                    "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
+                    "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
+                    "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a>" +
+                    "            </div>" +
+                    "        </div>" +
+                    "    </div>" +
+                    "</div>";
+                this._scope = $rootScope.$new();
+                this._scope.toggleSidebar = function () {
+                    if (self._isOpen) {
+                        self.close();
+                    } else {
+                        self.open();
+                    }
+                };
+                this._scope.files = this._getFiles();
+                this._scope.openFile = function(href) {
+                    if (window.location.pathname.indexOf("files") === -1) {
+                        $("[data-container-id='files_bucket']")[0].click();
+                    }
+                    window.location.hash = href;
+                };
+                var $sidebar = $compile(sidebar)(this._scope);
+                var $body = $("body");
+                $body.prepend($sidebar);
+            };
+
+            Sidebar.prototype._getFiles = function () {
+                return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
+                    var $e = $(e);
+                    var $diffIcon = $e.siblings(".octicon").clone();
+                    var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
+                    var fullPath = $e.text().trim();
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon };
+                });
+            };
+
+            return new Sidebar();
+        })
         .factory("StatusesManager", function (StatusOptions, $q, ghHttp) {
             function StatusesManager(config) {
                 this._statuses = {};
@@ -279,7 +413,7 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function ($compile, $timeout, $q, $rootScope, $sce) {
+        .factory("PullRequestManager", function ($timeout, sidebar) {
             function PullRequestManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -288,10 +422,7 @@
                 this._commentsClickListener = { pullRequestId: null };
                 this._currentPullRequestId = null;
                 this._originalFooterMarginLeft = null;
-                this._isOpen = false;
-                this._animationDuration = 1000;
                 this._clean = true;
-                this._scope = null;
                 this._startPolling();
             }
 
@@ -326,138 +457,16 @@
                     this._markPullRequestOpened(pullRequestId);
                     this._markPullRequestCommits(pullRequestId);
                     this._registerCommentsClickListener(pullRequestId);
-                    this._setupPullRequest(pullRequestId);
+                    this._setupPullRequest();
                 }
                 this._syncComments(pullRequestId);
             };
 
-            PullRequestManager.prototype._setupPullRequest = function(pullRequestId) {
-                var self = this;
-                this._renderFilesContainer();
-                $timeout(function () { self._openFilesContainer(); });
+            PullRequestManager.prototype._setupPullRequest = function() {
+                $timeout(function () { sidebar.open(/*newFiles*/true); });
             };
 
-            PullRequestManager.prototype._wipeFileNames = function () {
-                this._scope.files = [];
-            };
 
-            PullRequestManager.prototype._renderFilesContainer = function () {
-                if ($(".ghe__sidebar").length) {
-                    this._scope.files = this._getFiles();
-                    return;
-                }
-                var self = this;
-                var sidebar =
-                    "<div class='ghe__sidebar'>" +
-                    "    <div class='ghe__chevron ghe__open-close-button' ng-click='toggleSidebar()'></div>" +
-                    "    <div class='ghe__sidebar-header'>" +
-                    "        <div class='ghe__title'>Pull Request Manager</div>" +
-                    "    </div>" +
-                    "    <div class='ghe__sidebar-files-wrapper'>" +
-                    "        <div class='ghe__sidebar-files'>" +
-                    "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
-                    "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
-                    "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a>" +
-                    "            </div>" +
-                    "        </div>" +
-                    "    </div>" +
-                    "</div>";
-                this._scope = $rootScope.$new();
-                this._scope.toggleSidebar = function () {
-                    if (self._isOpen) {
-                        self._closeFilesContainer();
-                    } else {
-                        self._openFilesContainer();
-                    }
-                };
-                this._scope.files = this._getFiles();
-                this._scope.openFile = function(href) {
-                  if (window.location.pathname.indexOf("files") === -1) {
-                    $("[data-container-id='files_bucket']")[0].click();
-                  }
-                  window.location.hash = href;
-                };
-                var $sidebar = $compile(sidebar)(this._scope);
-                var $body = $("body");
-                $body.prepend($sidebar);
-            };
-
-            PullRequestManager.prototype._openFilesContainer = function () {
-                if (this._isOpen) { return; }
-                var self = this;
-                this._isOpen = true;
-                var $sidebar = $(".ghe__sidebar");
-                var $footerContainer = $("body > .container");
-                var $openCloseButton = $(".ghe__open-close-button");
-                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
-                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's width.
-                $footerContainer.attr("style", "width: 980px !important");
-                var $wrapper = $("body > .wrapper");
-                this._originalFooterMarginLeft = $footerContainer.css("marginLeft");
-                var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
-                $openCloseButton.animate({ left: "-41px" }, {
-                    duration: 500,
-                    complete: function () {
-                        $openCloseButton.removeClass("right").addClass("left");
-                        $openCloseButton.animate({ left: "212px" }, { duration: self._animationDuration });
-                        $wrapper.animate({ marginLeft: "255px" }, { duration: self._animationDuration });
-                        $footerContainer.animate({ marginLeft: newFooterContainerMarginLeft.toString() + "px" }, { duration: self._animationDuration });
-                        $sidebar.animate({ left: "0px" }, { duration: self._animationDuration });
-                    }
-                });
-            };
-
-            PullRequestManager.prototype._closeFilesContainer = function (permanently) {
-                var self = this;
-                var deferred = $q.defer();
-                var $openCloseButton = $(".ghe__open-close-button");
-                if (!this._isOpen) {
-                    if (permanently) {
-                        $openCloseButton.animate({ left: "-41px" }, {
-                            duration: 500,
-                            complete: function () {
-                                deferred.resolve();
-                            }
-                        });
-                    } else {
-                        deferred.resolve();
-                    }
-                }
-                this._isOpen = false;
-                var $sidebar = $(".ghe__sidebar");
-                var $footerContainer = $("body > .container");
-                //The wide github chrome extension (https://chrome.google.com/webstore/detail/wide-github/kaalofacklcidaampbokdplbklpeldpj)
-                //makes the footer too large by setting width: 90% !important.  Therefore, we set the footer container back to github's original width.
-                var $wrapper = $("body > .wrapper");
-                $wrapper.animate({ marginLeft: "0px" }, { duration: this._animationDuration });
-                $footerContainer.animate({ marginLeft: self._originalFooterMarginLeft }, { duration: this._animationDuration });
-                $sidebar.animate({ left: "-254px" }, { duration: this._animationDuration });
-                $openCloseButton.animate({ left: "-41px" }, {
-                    duration: this._animationDuration,
-                    complete: function () {
-                        $openCloseButton.removeClass("left").addClass("right");
-                        if (!permanently) {
-                            $openCloseButton.animate({left: "10px"}, {
-                                duration: 500,
-                                complete: function () { deferred.resolve(); }
-                            });
-                        } else {
-                            deferred.resolve();
-                        }
-                    }
-                });
-                return deferred.promise;
-            };
-
-            PullRequestManager.prototype._getFiles = function () {
-                return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
-                    var $e = $(e);
-                    var $diffIcon = $e.siblings(".octicon").clone();
-                    var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
-                    var fullPath = $e.text().trim();
-                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon };
-                });
-            };
 
             PullRequestManager.prototype._markPullRequestOpened = function (pullRequestId) {
                 this._currentPullRequestId = pullRequestId;
@@ -519,12 +528,9 @@
 
             PullRequestManager.prototype._cleanup = function () {
                 if (this._clean) { return; }
-                var self = this;
                 this._currentPullRequestId = null;
                 this._deregisterCommentsClickListener();
-                this._closeFilesContainer(/*permanently*/ true).then(function () {
-                    self._wipeFileNames();
-                });
+                sidebar.close(/*permanently*/ true);
                 this._clean = true;
             };
 
