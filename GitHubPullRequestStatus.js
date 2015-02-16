@@ -122,7 +122,10 @@
                 this._scope.files = this._getFiles();
                 this._scope.openFile = function(href) {
                     if (window.location.pathname.indexOf("files") === -1) {
-                        $("[data-container-id='files_bucket']")[0].click();
+                        var pullRequestFilesLink = $("[data-container-id='files_bucket']");
+                        if (pullRequestFilesLink.length) {
+                            pullRequestFilesLink[0].click();
+                        }
                     }
                     window.location.hash = href;
                 };
@@ -466,8 +469,6 @@
                 $timeout(function () { sidebar.open(/*newFiles*/true); });
             };
 
-
-
             PullRequestManager.prototype._markPullRequestOpened = function (pullRequestId) {
                 this._currentPullRequestId = pullRequestId;
                 this._statusesManager.markPullRequestOpened(this._repoId, pullRequestId);
@@ -541,7 +542,7 @@
 
             return PullRequestManager;
         })
-        .factory("CommitManager", function () {
+        .factory("CommitManager", function ($timeout, sidebar) {
             function CommitManager(config) {
                 this._repoId = config.repoId;
                 this._userId = config.userId;
@@ -550,6 +551,7 @@
                 this._commentsClickListener = { commitHash: null };
                 this._currentCommitHash = null;
                 this._startPolling();
+                this._clean = true;
             }
 
             CommitManager.prototype._startPolling = function () {
@@ -560,9 +562,10 @@
 
             CommitManager.prototype._syncCommit = function () {
                 if (!this._isCommitOpen()) {
-                    this._deregisterCommentsClickListener();
+                    this._cleanup();
                     return;
                 }
+                this._clean = false;
                 var commitHash = this._getCommitHash();
                 if (this._currentCommitHash !== commitHash) {
                     this._markCommitOpened(commitHash);
@@ -593,7 +596,7 @@
             };
 
             CommitManager.prototype._setupCommit = function (commitHash) {
-                //TODO We'll probably need to link pull requets to commits here
+                $timeout(function () { sidebar.open(/*newFiles*/true); });
             };
 
             CommitManager.prototype._registerCommentsClickListener = function (commitHash) {
@@ -650,6 +653,14 @@
 
             CommitManager.prototype._isCommitOpen = function () {
                 return $(".full-commit").length !== 0;
+            };
+
+            CommitManager.prototype._cleanup = function () {
+                if (this._clean) { return; }
+                this._currentCommitHash = null;
+                this._deregisterCommentsClickListener();
+                sidebar.close(/*permanently*/ true);
+                this._clean = true;
             };
 
             CommitManager.prototype._deregisterCommentsClickListener = function () {
