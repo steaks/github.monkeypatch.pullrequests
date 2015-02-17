@@ -9,7 +9,7 @@
                 inProgress: 3
             }
         })
-        .factory("sidebar", function ($q, $rootScope, $sce, $compile) {
+        .factory("sidebar", function ($q, $rootScope, $sce, $compile, $timeout) {
             function Sidebar() {
                 this._scope = null;
                 this._isOpen = false;
@@ -17,9 +17,13 @@
             }
 
             Sidebar.prototype.open = function (newFiles) {
-                if (newFiles) { this._renderSidebar(); }
-                if (this._isOpen) { return; }
                 var self = this;
+                if (newFiles) {
+                    this._renderSidebar();
+                    $timeout(function () { self.open(); }, 500);
+                    return;
+                }
+                if (this._isOpen) { return; }
                 this._isOpen = true;
                 var $sidebar = $(".ghe__sidebar");
                 var $footerContainer = $("body > .container");
