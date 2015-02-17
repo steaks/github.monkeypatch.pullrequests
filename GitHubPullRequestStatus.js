@@ -7,7 +7,7 @@
                 accept: 1,
                 reject: 2,
                 inProgress: 3
-            }
+            };
         })
         .factory("sidebar", function ($q, $rootScope, $sce, $compile, $timeout) {
             function Sidebar() {
@@ -306,7 +306,7 @@
             ListManager.prototype.startPolling = function () {
                 var self = this;
                 this._checkPullRequests();
-                setInterval(function () { self._checkPullRequests() }, 1000);
+                setInterval(function () { self._checkPullRequests(); }, 1000);
             };
 
             ListManager.prototype._checkPullRequests = function () {
@@ -420,204 +420,44 @@
 
             return ListManager;
         })
-        .factory("PullRequestManager", function ($timeout, sidebar) {
-            function PullRequestManager(config) {
-                this._repoId = config.repoId;
-                this._userId = config.userId;
-                this._userName = config.userName;
-                this._statusesManager = config.statusesManager;
-                this._commentsClickListener = { pullRequestId: null };
-                this._currentPullRequestId = null;
-                this._originalFooterMarginLeft = null;
-                this._clean = true;
-                this._startPolling();
+        .factory("CommentsManager", function ($timeout, $interval) {
+            function CommentsManager(config) {
+                this._callbacks = {
+                    onRead: config.onRead,
+                    getReadComments: config.getReadComments
+                };
+                this._diffId = null;
+                this._interval = null;
             }
 
-            PullRequestManager.prototype._startPolling = function() {
+            CommentsManager.prototype.start = function (diffId) {
                 var self = this;
-                this._syncPullRequest();
-                setInterval(function () { self._syncPullRequest(); }, 1000);
-            };
-
-            PullRequestManager.prototype._isPullRequestOpen = function () {
-                return $(".view-pull-request").length !== 0;
-            };
-
-            PullRequestManager.prototype._getPullRequestId = function () {
-                return parseInt($(".gh-header-number").text().substring(1), 10);
-            };
-
-            PullRequestManager.prototype._getCommits = function () {
-                return $(".commit-links-group [data-clipboard-text]")
-                    .map(function (i, e) { return $(e).attr("data-clipboard-text"); })
-                    .toArray();
-            };
-
-            PullRequestManager.prototype._syncPullRequest = function () {
-                if (!this._isPullRequestOpen()) {
-                    this._cleanup();
-                    return;
-                }
-                this._clean = false;
-                var pullRequestId = this._getPullRequestId();
-                if (this._currentPullRequestId !== pullRequestId) {
-                    this._markPullRequestOpened(pullRequestId);
-                    this._markPullRequestCommits(pullRequestId);
-                    this._registerCommentsClickListener(pullRequestId);
-                    this._setupPullRequest();
-                }
-                this._syncComments(pullRequestId);
-            };
-
-            PullRequestManager.prototype._setupPullRequest = function() {
-                $timeout(function () { sidebar.open(/*newFiles*/true); });
-            };
-
-            PullRequestManager.prototype._markPullRequestOpened = function (pullRequestId) {
-                this._currentPullRequestId = pullRequestId;
-                this._statusesManager.markPullRequestOpened(this._repoId, pullRequestId);
-            };
-
-            PullRequestManager.prototype._syncComments = function (pullRequestId) {
-                var self = this;
-                var readComments = this._statusesManager.getReadCommentsOnPullRequest(this._repoId, pullRequestId, /*includeCommitComments*/true);
-                $("[data-body-version]").each(function (i, e) {
-                    var $e = $(e);
-                    if ($e.css("display") === "none") { return; }
-                    if (self._getCommentUserName($e) === self._userName) { return; }
-                    var dataBodyVersion = $e.attr("data-body-version");
-                    $e.find(".unread-label").remove();
-                    if (readComments.indexOf(dataBodyVersion) === -1) {
-                        $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
-                        $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
-                        self._markReadIfAppropriate(pullRequestId, $e, dataBodyVersion);
-                    }
-                    else {
-                        $e.find(".timeline-comment-header").css("background-color", "");
-                    }
-                });
-            };
-
-            PullRequestManager.prototype._getCommentUserName = function ($element) {
-                return $element.find(".author").text();
-            };
-
-            PullRequestManager.prototype._markReadIfAppropriate = function (pullRequestId, $element, dataBodyVersion) {
-                var self = this;
-                if ($element.visible()) {
-                    setTimeout(function () {
-                        if ($element.visible()) {
-                            self._statusesManager.addReadComment(self._repoId, pullRequestId, dataBodyVersion);
-                            self._syncComments(pullRequestId);
-                        }
-                    }, 2000);
-                }
-            };
-
-            PullRequestManager.prototype._markPullRequestCommits = function (pullRequestId) {
-                var commits = this._getCommits();
-                this._statusesManager.markPullRequestCommits(this._repoId, pullRequestId, commits);
-            };
-
-            PullRequestManager.prototype._registerCommentsClickListener = function (pullRequestId) {
-                var self = this;
-                if (this._commentsClickListener.pullRequestId === pullRequestId) { return; }
-                this._deregisterCommentsClickListener();
-                $(".view-pull-request [data-body-version]").on("click", function (e) {
-                    var dataBodyVersion = $(e.currentTarget).attr("data-body-version");
-                    self._statusesManager.addReadComment(self._repoId, pullRequestId, dataBodyVersion);
-                    self._syncComments(pullRequestId);
-                });
-                this._commentsClickListener = { pullRequestId: pullRequestId };
-            };
-
-            PullRequestManager.prototype._cleanup = function () {
-                if (this._clean) { return; }
-                this._currentPullRequestId = null;
-                this._deregisterCommentsClickListener();
-                sidebar.close(/*permanently*/ true);
-                this._clean = true;
-            };
-
-            PullRequestManager.prototype._deregisterCommentsClickListener = function () {
-                $(".view-pull-request [data-body-version]").off("click");
-                this._commentsClickListener = { pullRequestId: null };
-            };
-
-            return PullRequestManager;
-        })
-        .factory("CommitManager", function ($timeout, sidebar) {
-            function CommitManager(config) {
-                this._repoId = config.repoId;
-                this._userId = config.userId;
-                this._userName = config.userName;
-                this._statusesManager = config.statusesManager;
-                this._commentsClickListener = { commitHash: null };
-                this._currentCommitHash = null;
-                this._startPolling();
-                this._clean = true;
-            }
-
-            CommitManager.prototype._startPolling = function () {
-                var self = this;
-                this._syncCommit();
-                setInterval(function () { self._syncCommit(); }, 1000);
-            };
-
-            CommitManager.prototype._syncCommit = function () {
-                if (!this._isCommitOpen()) {
-                    this._cleanup();
-                    return;
-                }
-                this._clean = false;
-                var commitHash = this._getCommitHash();
-                if (this._currentCommitHash !== commitHash) {
-                    this._markCommitOpened(commitHash);
-                    this._markCommitPullRequests(commitHash);
-                    this._registerCommentsClickListener(commitHash);
-                    this._setupCommit(commitHash);
-                }
-                this._syncComments(commitHash);
-            };
-
-            CommitManager.prototype._markCommitOpened = function (commitHash) {
-                this._currentCommitHash = commitHash;
-            };
-
-            CommitManager.prototype._markCommitPullRequests = function (commitHash) {
-                var pullRequestIds = this._getPullRequestIds();
-                this._statusesManager.markCommitPullRequests(this._repoId, commitHash, pullRequestIds);
-            };
-
-            CommitManager.prototype._getPullRequestIds = function () {
-                return $(".pull-request a")
-                    .map(function (i, e) {
-                        var $e = $(e);
-                        var pullRequestId = $e.text().replace("#", "");
-                        return parseInt(pullRequestId, 10);
-                    })
-                    .toArray();
-            };
-
-            CommitManager.prototype._setupCommit = function (commitHash) {
-                $timeout(function () { sidebar.open(/*newFiles*/true); });
-            };
-
-            CommitManager.prototype._registerCommentsClickListener = function (commitHash) {
-                var self = this;
-                if (this._commentsClickListener.commitHash === commitHash) { return; }
-                this._deregisterCommentsClickListener();
+                this._cleanup();
+                this._diffId = diffId;
                 $("[data-body-version]").on("click", function (e) {
-                    var dataBodyVersion = $(e.currentTarget).attr("data-body-version");
-                    self._statusesManager.addReadCommentOnCommit(self._repoId, commitHash, dataBodyVersion);
-                    self._syncComments(commitHash);
+                    var commentId = $(e.currentTarget).attr("data-body-version");
+                    self._onRead(commentId);
+                    self._sync();
                 });
-                this._commentsClickListener = { commitHash: commitHash };
+                self._sync();
+                this._interval = $interval(function () {
+                    self._sync();
+                }, 1000);
             };
 
-            CommitManager.prototype._syncComments = function (commitHash) {
+            CommentsManager.prototype.stop = function () {
+                this._cleanup();
+            };
+
+            CommentsManager.prototype._cleanup = function () {
+                this._diffId = null;
+                $("[data-body-version]").off("click");
+                $interval.cancel(this._interval);
+            };
+
+            CommentsManager.prototype._sync = function () {
                 var self = this;
-                var readComments = this._statusesManager.getReadCommentsOnCommit(this._repoId, commitHash, /*includeCommitComment*/true);
+                var readComments = this._getReadComments();
                 $("[data-body-version]").each(function (i, e) {
                     var $e = $(e);
                     if ($e.css("display") === "none") { return; }
@@ -627,7 +467,7 @@
                     if (readComments.indexOf(dataBodyVersion) === -1) {
                         $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
                         $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
-                        self._markReadIfAppropriate(commitHash, $e, dataBodyVersion);
+                        self._markReadIfAppropriate($e, dataBodyVersion);
                     }
                     else {
                         $e.find(".timeline-comment-header").css("background-color", "");
@@ -635,44 +475,163 @@
                 });
             };
 
-            CommitManager.prototype._markReadIfAppropriate = function (commitHash, $element, dataBodyVersion) {
+            CommentsManager.prototype._markReadIfAppropriate = function ($element, commentId) {
                 var self = this;
                 if ($element.visible()) {
-                    setTimeout(function () {
+                    $timeout(function () {
                         if ($element.visible()) {
-                            self._statusesManager.addReadCommentOnCommit(self._repoId, commitHash, dataBodyVersion);
-                            self._syncComments(commitHash);
+                            self._onRead(commentId);
+                            self._sync();
                         }
                     }, 2000);
                 }
             };
 
-            CommitManager.prototype._getCommentUserName = function ($element) {
+            CommentsManager.prototype._getCommentUserName = function ($element) {
                 return $element.find(".author").text();
             };
 
-            CommitManager.prototype._getCommitHash = function () {
-                return $(".full-commit span.js-selectable-text").text();
+            CommentsManager.prototype._onRead = function (commentId) {
+                this._callbacks.onRead(this._diffId, commentId);
             };
 
-            CommitManager.prototype._isCommitOpen = function () {
-                return $(".full-commit").length !== 0;
+            CommentsManager.prototype._getReadComments = function () {
+                return this._callbacks.getReadComments(this._diffId);
             };
 
-            CommitManager.prototype._cleanup = function () {
+            return CommentsManager;
+        })
+        .factory("DiffManager", function ($timeout, $interval, sidebar) {
+            function DiffManager(config) {
+                this._repoId = config.repoId;
+                this._userId = config.userId;
+                this._userName = config.userName;
+                this._commentsManager = config.commentsManager;
+                this._callbacks = {
+                    isOpen: config.isOpen,
+                    onOpen: config.onOpen,
+                    getDiffId: config.getDiffId
+                };
+                this._diffId = null;
+                this._clean = true;
+                this._init();
+            }
+
+            DiffManager.prototype._init = function () {
+                var self = this;
+                this._sync();
+                $interval(function () { self._sync(); }, 1000);
+            };
+
+            DiffManager.prototype._sync = function () {
+                if (!this._isOpen()) {
+                    this._tearDown();
+                    return;
+                }
+                this._clean = false;
+                var diffId = this._getDiffId();
+                if (this._diffId !== diffId) {
+                    this._setup(diffId);
+                }
+            };
+
+            DiffManager.prototype._setup = function (diffId) {
+                this._diffId = diffId;
+                this._onOpen();
+                this._commentsManager.start(diffId);
+                sidebar.open(/*newFiles*/true);
+            };
+
+            DiffManager.prototype._tearDown = function () {
                 if (this._clean) { return; }
-                this._currentCommitHash = null;
-                this._deregisterCommentsClickListener();
-                sidebar.close(/*permanently*/ true);
+                this._diffId = null;
+                this._commentsManager.stop();
+                sidebar.close(/*permanently*/true);
                 this._clean = true;
             };
 
-            CommitManager.prototype._deregisterCommentsClickListener = function () {
-                $("[data-body-version]").off("click");
-                this._commentsClickListener = { commitHash: null };
+            DiffManager.prototype._getDiffId = function () {
+                return this._callbacks.getDiffId();
             };
 
-            return CommitManager;
+            DiffManager.prototype._isOpen = function () {
+                return this._callbacks.isOpen();
+            };
+
+            DiffManager.prototype._onOpen = function () {
+                this._callbacks.onOpen(this._diffId);
+            };
+
+            return DiffManager;
+        })
+        .factory("pullRequestManager", function (CommentsManager, DiffManager) {
+            var create = function(config) {
+                var commentsManager = new CommentsManager({
+                  onRead: function (diffId, commentId) {
+                      config.statusesManager.addReadComment(config.repoId, diffId, commentId);
+                  },
+                  getReadComments: function (diffId) {
+                      return config.statusesManager.getReadCommentsOnPullRequest(config.repoId, diffId, /*includeCommitComments*/true);
+                  }
+                });
+                new DiffManager({
+                    repoId: config.repoId,
+                    userId: config.userId,
+                    userName: config.userName,
+                    commentsManager: commentsManager,
+                    isOpen: function () {
+                        return $(".view-pull-request").length !== 0;
+                    },
+                    onOpen: function (diffId) {
+                        config.statusesManager.markPullRequestOpened(config.repoId, diffId);
+                        var commits = $(".commit-links-group [data-clipboard-text]")
+                            .map(function (i, e) { return $(e).attr("data-clipboard-text"); })
+                            .toArray();
+                        config.statusesManager.markPullRequestCommits(config.repoId, diffId, commits);
+                    },
+                    getDiffId: function () {
+                        return parseInt($(".gh-header-number").text().substring(1), 10);
+                    }
+                });
+            };
+
+            return { create: create };
+        })
+        .factory("commitManager", function (CommentsManager, DiffManager) {
+            var create = function(config) {
+                var commentsManager = new CommentsManager({
+                    onRead: function (diffId, commentId) {
+                        config.statusesManager.addReadCommentOnCommit(config.repoId, diffId, commentId);
+                    },
+                    getReadComments: function (diffId) {
+                        return config.statusesManager.getReadCommentsOnCommit(config.repoId, diffId, /*includeCommitComment*/true);
+                    }
+                });
+                new DiffManager({
+                    repoId: config.repoId,
+                    userId: config.userId,
+                    userName: config.userName,
+                    commentsManager: commentsManager,
+                    isOpen: function () {
+                        return $(".full-commit").length !== 0;
+                    },
+                    onOpen: function (diffId) {
+                        var pullRequestIds = $(".pull-request a")
+                            .map(function (i, e) {
+                                var $e = $(e);
+                                var pullRequestId = $e.text().replace("#", "");
+                                return parseInt(pullRequestId, 10);
+                            })
+                            .toArray();
+                        config.statusesManager.markCommitPullRequests(config.repoId, diffId, pullRequestIds);
+                    },
+                    getDiffId: function () {
+                        return $(".full-commit span.js-selectable-text").text();
+                    }
+                });
+            };
+
+            return { create: create };
         })
         .factory("parseQueryString", function () {
             return function () {
@@ -764,7 +723,7 @@
 
             return new GHHttp();
         })
-        .factory("main", function (ListManager, PullRequestManager, ghHttp, StatusesManager, CommitManager) {
+        .factory("main", function (ListManager, pullRequestManager, ghHttp, StatusesManager, commitManager) {
             var run = function () {
                 var repoId = parseInt($("#repository_id").val(), 10);
                 var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
@@ -772,13 +731,13 @@
                 if (!repoId) { return; }
                 var statusesManager = new StatusesManager({ userId: userId });
                 var listManager = new ListManager({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
-                var pullRequestManager = new PullRequestManager({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
-                var commitManager = new CommitManager({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                pullRequestManager.create({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                commitManager.create({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
                 window.destroyGithubEnhancementsStorage = function () {
                     var keyStart = "githubenhancements";
                     _(localStorage)
                         .keys()
-                        .filter(function (k) { return k.slice(0, keyStart.length) === keyStart } )
+                        .filter(function (k) { return k.slice(0, keyStart.length) === keyStart; } )
                         .each(function (k) { localStorage.removeItem(k); });
                 };
             };
