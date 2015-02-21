@@ -13,5 +13,9 @@
     ],
     "js": [ "jquery-1.11.1.min.js", "jquery.visible.js", "lodash.js", "angular.js", "GitHubPullRequestStatus.js" ],
     "css": ["GitHubPullRequestStatus.css"]
-  }]
+  }],
+  "background" : {
+    "scripts": [ "jquery-1.11.1.min.js", "GitHubPullRequestStatusBackground.js" ],
+    "persistent": false
+  }
 }

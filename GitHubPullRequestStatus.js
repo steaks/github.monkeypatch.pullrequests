@@ -462,7 +462,7 @@
                 }
             };
 
-            return ListManager;
+            return { init: function (config) { return new ListManager(config); } };
         })
         .factory("CommentsManager", function ($timeout, $interval) {
             function CommentsManager(config) {
@@ -610,7 +610,7 @@
             return DiffManager;
         })
         .factory("pullRequestManager", function (CommentsManager, DiffManager) {
-            var create = function(config) {
+            var init = function(config) {
                 var commentsManager = new CommentsManager({
                   userName: config.userName,
                   onRead: function (diffId, commentId) {
@@ -641,10 +641,10 @@
                 });
             };
 
-            return { create: create };
+            return { init: init };
         })
         .factory("commitManager", function (CommentsManager, DiffManager) {
-            var create = function(config) {
+            var init = function(config) {
                 var commentsManager = new CommentsManager({
                     userName: config.userName,
                     onRead: function (diffId, commentId) {
@@ -678,7 +678,7 @@
                 });
             };
 
-            return { create: create };
+            return { init: init };
         })
         .factory("parseQueryString", function () {
             return function () {
@@ -770,16 +770,57 @@
 
             return new GHHttp();
         })
-        .factory("main", function (ListManager, pullRequestManager, ghHttp, StatusesManager, commitManager) {
+        .factory("smartCopying", function () {
+            var init = function () {
+                function resolveLineEnding(selectionText, lines) {
+                    if (selectionText.split(/\r\n/).length === lines.length) {
+                        return "\r\n";
+                    }
+                    else if (selectionText.split(/\n/).length === lines.length) {
+                        return "\n";
+                    }
+                    else {
+                        return "\r";
+                    }
+                }
+
+                $(document).on("copy", function () {
+                    if (!window.location.href.match(/.*\/pull.*/) && !window.location.href.match(/.*\/commit.*/)) {
+                        return;
+                    }
+                    var selection = window.getSelection(),
+                        selectionText = selection.toString(),
+                        lines = selectionText.split(/\r\n|\r|\n/),
+                        metaInfoRegex = /@@ -[0-9]+,[0-9]+ \+[0-9]+,[0-9]+ *@@[ ]?/,
+                        lineEnding = resolveLineEnding(selectionText, lines),
+                        cleanedSelectionText;
+
+                    cleanedSelectionText = lines.reduce(function (agg, curr, index) {
+                        var cleanedCurr = curr[0] === "+" || curr[0] === "-" || curr.charCodeAt(0) === 32 || curr.charCodeAt(0) === 160
+                            ? curr.replace(metaInfoRegex, "").substr(1)
+                            : curr.replace(metaInfoRegex, "");
+                        return agg + cleanedCurr + (index !== lines.length - 1 ? lineEnding : "");
+                    }, "");
+                    //I'm not exactly sure why a timeout is useful here.  The behavior indicates that with out a timeout sometimes
+                    //the copy clipboard does not actually have the correctly cleaned text.  The timeout seems to mitigate that problem.
+                    //My best guess is that there is a race condition and the timeout makes this code "lose" the race condition...so
+                    //the last text in the clipboard is this cleaned text rather than the regular text.
+                    setTimeout(function () { chrome.runtime.sendMessage({ cleanedSelectionText: cleanedSelectionText }); });
+                });
+            };
+            return { init: init }
+        })
+        .factory("main", function (listManager, pullRequestManager, ghHttp, StatusesManager, commitManager, smartCopying) {
             var run = function () {
                 var repoId = parseInt($("#repository_id").val(), 10);
                 var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
                 var userName = $("[name='octolytics-actor-login']").attr("content");
                 if (!repoId) { return; }
                 var statusesManager = new StatusesManager({ userId: userId });
-                var listManager = new ListManager({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
-                pullRequestManager.create({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
-                commitManager.create({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                listManager.init({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
+                pullRequestManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                commitManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+                smartCopying.init();
                 window.destroyGithubEnhancementsStorage = function () {
                     var keyStart = "githubenhancements";
                     _(localStorage)
