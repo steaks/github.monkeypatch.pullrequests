@@ -126,7 +126,7 @@
                     "        <div class='ghe__sidebar-files'>" +
                     "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
                     "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
-                    "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a>" +
+                    "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a><a class='ghe__comment-link' ng-click='toggleComments(file)'><span class='octicon octicon-comment'>{{file.numComments}}</span></a>" +
                     "            </div>" +
                     "            <div class='ghe__files-not-loaded-message' ng-if='files.length === 0'>Your files are not loaded.  They will load when you click on the \"Files Changed\" link.</div>" +
                     "        </div>" +
@@ -138,6 +138,9 @@
                     } else {
                         self.open();
                     }
+                };
+                this._scope.toggleComments = function (file) {
+                    file.$toggleCommentsCheckbox[0].click();
                 };
                 this._scope.openFile = function(href) {
                     if (window.location.pathname.indexOf("files") === -1) {
@@ -153,13 +156,22 @@
             };
 
             Sidebar.prototype._getFiles = function () {
-                return $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
+                var files = $(".table-of-contents li a:not(.tooltipped)").map(function (i, e) {
                     var $e = $(e);
                     var $diffIcon = $e.siblings(".octicon").clone();
                     var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
                     var fullPath = $e.text().trim();
                     return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon };
                 });
+                var fileCommentInfos = $(".file.js-details-container").map(function (i, e) {
+                    var $e = $(e);
+                    return { $toggleCommentsCheckbox: $e.find(".js-toggle-file-notes"), numComments: $e.find("[data-body-version]").length };
+                });
+                _.each(files, function (file, i) {
+                    var fileCommentInfo = fileCommentInfos[i];
+                    _.extend(file, fileCommentInfo);
+                });
+                return files;
             };
 
             return new Sidebar();

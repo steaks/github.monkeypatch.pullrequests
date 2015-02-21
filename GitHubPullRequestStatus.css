@@ -68,6 +68,25 @@
     color: #6cc644
 }
 
+.ghe__comment-link .octicon-comment {
+    margin-left: 5px;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.ghe__comment-link {
+    color: #777;
+}
+
+.ghe__comment-link:hover {
+    color: #4183c4;
+    cursor: pointer;
+}
+
+.ghe__comment-link .octicon-comment::before {
+    margin-right: 5px;
+}
+
 .ghe__file-wrapper {
     display: flex;
     flex-direction: row;
