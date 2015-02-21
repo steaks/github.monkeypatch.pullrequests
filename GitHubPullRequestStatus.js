@@ -13,7 +13,8 @@
             function Sidebar() {
                 this._scope = null;
                 this._isOpen = false;
-                this._animationDuration = 1000;
+                this._animationDuration = 300;
+                this._openCloseButtonAnimationDuration = 300;
                 this._getFilesInterval = null;
                 this._scope = $rootScope.$new();
             }
@@ -37,7 +38,7 @@
                 this._originalFooterMarginLeft = $footerContainer.css("marginLeft");
                 var newFooterContainerMarginLeft = (window.innerWidth - $footerContainer.width() + 255 ) / 2;
                 $openCloseButton.animate({ left: "-41px" }, {
-                    duration: 500,
+                    duration: this._openCloseButtonAnimationDuration,
                     complete: function () {
                         $openCloseButton.removeClass("right").addClass("left");
                         $openCloseButton.animate({ left: "212px" }, { duration: self._animationDuration });
@@ -56,7 +57,7 @@
                 if (!this._isOpen) {
                     if (permanently) {
                         $openCloseButton.animate({ left: "-41px" }, {
-                            duration: 500,
+                            duration: this._openCloseButtonAnimationDuration,
                             complete: function () {
                                 self._clearFiles();
                                 deferred.resolve();
@@ -81,7 +82,7 @@
                         $openCloseButton.removeClass("left").addClass("right");
                         if (!permanently) {
                             $openCloseButton.animate({left: "10px"}, {
-                                duration: 500,
+                                duration: self._openCloseButtonAnimationDuration,
                                 complete: function () { deferred.resolve(); }
                             });
                         } else {
