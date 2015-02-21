@@ -130,7 +130,7 @@
                     "        <div class='ghe__sidebar-files'>" +
                     "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
                     "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
-                    "                <a class='ghe__file-link' ng-click='openFile(file.href)' title='{{file.path}}'>{{file.name}}</a><a class='ghe__comment-link' ng-click='toggleComments(file)'><span class='octicon octicon-comment'>{{file.numComments}}</span></a>" +
+                    "                <a class='ghe__file-link' ng-click='openFile(file.href)' title='{{file.path}}'>{{file.name}}</a><a class='ghe__comment-link' ng-click='toggleComments(file)' title='toggle notes'><span class='octicon octicon-comment'>{{file.numComments}}</span></a>" +
                     "            </div>" +
                     "            <div class='ghe__files-not-loaded-message' ng-if='files.length === 0'>Your files are not loaded.  They will load when you click on the \"Files Changed\" link.</div>" +
                     "        </div>" +
