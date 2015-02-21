@@ -209,7 +209,12 @@
                     return $q.all({ issueComments: issueCommentsPromise, pullRequestComments: pullRequestCommentsPromise, commits: commitsPromise })
                         .then(function (commentsAndCommits) {
                             _.each(commentsAndCommits.issueComments, function (comments, pullRequestId) {
-                                var mostRecentComment = _.max(commentsAndCommits.pullRequestComments[pullRequestId].concat(comments), function (c) { return new Date(c.updated_at); });
+                                var allComments = commentsAndCommits.pullRequestComments[pullRequestId].concat(comments);
+                                var mostRecentComment =
+                                    _(allComments)
+                                    .filter(function (c) { return c.user.id !== self._userId; })
+                                    .max(function (c) { return new Date(c.updated_at); })
+                                    .value();
                                 self._statuses[pullRequestId] = { users: {}, mostRecentCommentDatetime: mostRecentComment ? new Date(mostRecentComment.updated_at) : null };
                                 _.each(comments, function (comment) {
                                     var status = self._parseComment(comment);
