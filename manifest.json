@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "GitHub Pull Requests Manager",
   "description": "Keep track of pull requests you've viewed, approved, or rejected.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "icons": {
     "128": "codeducky_partial_logo_128x128.png"
   },
