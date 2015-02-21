@@ -336,7 +336,7 @@
             return StatusesManager;
 
         })
-        .factory("ListManager", function (StatusOptions) {
+        .factory("listManager", function (StatusOptions) {
             function ListManager(config) {
                 this._userId = config.userId;
                 this._userName = config.userName;
