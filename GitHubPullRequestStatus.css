@@ -37,11 +37,13 @@
 }
 
 .ghe__file-icon {
+    flex-shrink: 0;
     margin-right: 10px;
     margin-left: 10px;
 }
 
 .ghe__file-link {
+    flex-shrink: 0;
     cursor: pointer;
 }
 
@@ -75,6 +77,7 @@
 }
 
 .ghe__comment-link {
+    flex-shrink: 0;
     color: #777;
 }
 
