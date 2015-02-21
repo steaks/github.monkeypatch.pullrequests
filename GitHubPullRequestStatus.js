@@ -9,11 +9,13 @@
                 inProgress: 3
             };
         })
-        .factory("sidebar", function ($q, $rootScope, $sce, $compile, $timeout) {
+        .factory("sidebar", function ($q, $rootScope, $sce, $compile, $timeout, $interval) {
             function Sidebar() {
                 this._scope = null;
                 this._isOpen = false;
                 this._animationDuration = 1000;
+                this._getFilesInterval = null;
+                this._scope = $rootScope.$new();
             }
 
             Sidebar.prototype.open = function (newFiles) {
@@ -49,6 +51,7 @@
             Sidebar.prototype.close = function (permanently) {
                 var self = this;
                 var deferred = $q.defer();
+                $interval.cancel(this._getFilesInterval);
                 var $openCloseButton = $(".ghe__open-close-button");
                 if (!this._isOpen) {
                     if (permanently) {
@@ -95,8 +98,21 @@
             };
 
             Sidebar.prototype._renderSidebar = function () {
-                if ($(".ghe__sidebar").length) {
-                    this._scope.files = this._getFiles();
+                var self = this;
+                var $pullRequestFilesLink = $("[data-container-id='files_bucket']");
+                var $gheSidebar = $(".ghe__sidebar");
+                this._scope.files = this._getFiles();
+                if (!this._scope.files.length) {
+                    $pullRequestFilesLink.on("click.loadingFiles", function () {
+                        self._getFilesInterval = $interval(function () {
+                            self._scope.files = self._getFiles();
+                            if (self._scope.files.length) {
+                                $interval.cancel(self._getFilesInterval);
+                            }
+                        }, 1000);
+                    });
+                }
+                if ($gheSidebar.length) {
                     return;
                 }
                 var self = this;
@@ -112,10 +128,10 @@
                     "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
                     "                <a class='ghe__file-link' ng-click='openFile(file.href)'>{{file.name}}</a>" +
                     "            </div>" +
+                    "            <div class='ghe__files-not-loaded-message' ng-if='files.length === 0'>Your files are not loaded.  They will load when you click on the \"Files Changed\" link.</div>" +
                     "        </div>" +
                     "    </div>" +
                     "</div>";
-                this._scope = $rootScope.$new();
                 this._scope.toggleSidebar = function () {
                     if (self._isOpen) {
                         self.close();
@@ -123,12 +139,10 @@
                         self.open();
                     }
                 };
-                this._scope.files = this._getFiles();
                 this._scope.openFile = function(href) {
                     if (window.location.pathname.indexOf("files") === -1) {
-                        var pullRequestFilesLink = $("[data-container-id='files_bucket']");
-                        if (pullRequestFilesLink.length) {
-                            pullRequestFilesLink[0].click();
+                        if ($pullRequestFilesLink.length) {
+                            $pullRequestFilesLink[0].click();
                         }
                     }
                     window.location.hash = href;
@@ -427,6 +441,7 @@
                     getReadComments: config.getReadComments
                 };
                 this._diffId = null;
+                this._userName = config.userName;
                 this._interval = null;
             }
 
@@ -567,6 +582,7 @@
         .factory("pullRequestManager", function (CommentsManager, DiffManager) {
             var create = function(config) {
                 var commentsManager = new CommentsManager({
+                  userName: config.userName,
                   onRead: function (diffId, commentId) {
                       config.statusesManager.addReadComment(config.repoId, diffId, commentId);
                   },
@@ -600,6 +616,7 @@
         .factory("commitManager", function (CommentsManager, DiffManager) {
             var create = function(config) {
                 var commentsManager = new CommentsManager({
+                    userName: config.userName,
                     onRead: function (diffId, commentId) {
                         config.statusesManager.addReadCommentOnCommit(config.repoId, diffId, commentId);
                     },
