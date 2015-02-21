@@ -45,6 +45,13 @@
     cursor: pointer;
 }
 
+.ghe__files-not-loaded-message {
+    margin-top: 100px;
+    margin-left: 15px;
+    margin-right: 15px;
+    text-align: center;
+}
+
 .ghe__file-icon .octicon-diff-removed {
     color: #bd2c00
 }
