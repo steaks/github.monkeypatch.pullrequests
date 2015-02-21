@@ -113,17 +113,20 @@
                         }, 1000);
                     });
                 }
+                self._scope.toExpand = false;
                 if ($gheSidebar.length) {
                     return;
                 }
                 var self = this;
-                var sidebar =
+                var template =
                     "<div class='ghe__sidebar'>" +
                     "    <div class='ghe__chevron ghe__open-close-button' ng-click='toggleSidebar()'></div>" +
                     "    <div class='ghe__sidebar-header'>" +
                     "        <div class='ghe__title'>Pull Request Manager</div>" +
                     "    </div>" +
                     "    <div class='ghe__sidebar-files-wrapper'>" +
+                    "        <a class='ghe__toggle-all-comments-link' ng-click='toggleAllComments()' ng-show='!toExpand'>collapse notes</a>" +
+                    "        <a class='ghe__toggle-all-comments-link' ng-click='toggleAllComments()' ng-show='toExpand'>expand notes</a>" +
                     "        <div class='ghe__sidebar-files'>" +
                     "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
                     "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
@@ -143,6 +146,15 @@
                 this._scope.toggleComments = function (file) {
                     file.$toggleCommentsCheckbox[0].click();
                 };
+                this._scope.toggleAllComments = function () {
+                    _.each(self._scope.files, function (file) {
+                        var commentsShown = file.$toggleCommentsCheckbox.is(":checked");
+                        if (self._scope.toExpand !== commentsShown) {
+                            file.$toggleCommentsCheckbox[0].click();
+                        }
+                    });
+                    self._scope.toExpand = !self._scope.toExpand;
+                };
                 this._scope.openFile = function(href) {
                     if (window.location.pathname.indexOf("files") === -1) {
                         if ($pullRequestFilesLink.length) {
@@ -151,7 +163,7 @@
                     }
                     window.location.hash = href;
                 };
-                var $sidebar = $compile(sidebar)(this._scope);
+                var $sidebar = $compile(template)(this._scope);
                 var $body = $("body");
                 $body.prepend($sidebar);
             };
