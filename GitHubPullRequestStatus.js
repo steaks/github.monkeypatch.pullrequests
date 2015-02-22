@@ -10,22 +10,35 @@
             };
         })
         .factory("sidebar", function ($q, $rootScope, $sce, $compile, $timeout, $interval) {
-            function Sidebar() {
+            function Sidebar() { }
+
+            Sidebar.prototype.init = function (config) {
                 this._scope = null;
                 this._isOpen = false;
                 this._animationDuration = 300;
                 this._openCloseButtonAnimationDuration = 300;
                 this._getFilesInterval = null;
+                this._statusesManager = config.statusesManager;
                 this._scope = $rootScope.$new();
-            }
+                this._scope.showSettings = false;
+                this._scope.settings = this._statusesManager.getSettings();
+            };
 
-            Sidebar.prototype.open = function (newFiles) {
+            Sidebar.prototype.setup = function () {
                 var self = this;
-                if (newFiles) {
-                    this._renderSidebar();
-                    $timeout(function () { self.open(); }, 500);
-                    return;
-                }
+                this._renderSidebar();
+                $timeout(function () {
+                    var settings = self._statusesManager.getSettings();
+                    if (settings.openSidebarByDefault) {
+                        self.open();
+                    } else {
+                        self.close();
+                    }
+                }, 500);
+            };
+
+            Sidebar.prototype.open = function () {
+                var self = this;
                 if (this._isOpen) { return; }
                 this._isOpen = true;
                 var $sidebar = $(".ghe__sidebar");
@@ -49,13 +62,17 @@
                 });
             };
 
-            Sidebar.prototype.close = function (permanently) {
+            Sidebar.prototype.teardown = function () {
+                this.close(/*teardown*/true);
+            };
+
+            Sidebar.prototype.close = function (teardown) {
                 var self = this;
                 var deferred = $q.defer();
                 $interval.cancel(this._getFilesInterval);
                 var $openCloseButton = $(".ghe__open-close-button");
                 if (!this._isOpen) {
-                    if (permanently) {
+                    if (teardown) {
                         $openCloseButton.animate({ left: "-41px" }, {
                             duration: this._openCloseButtonAnimationDuration,
                             complete: function () {
@@ -80,7 +97,7 @@
                     duration: this._animationDuration,
                     complete: function () {
                         $openCloseButton.removeClass("left").addClass("right");
-                        if (!permanently) {
+                        if (!teardown) {
                             $openCloseButton.animate({left: "10px"}, {
                                 duration: self._openCloseButtonAnimationDuration,
                                 complete: function () { deferred.resolve(); }
@@ -122,9 +139,10 @@
                     "<div class='ghe__sidebar'>" +
                     "    <div class='ghe__chevron ghe__open-close-button' ng-click='toggleSidebar()'></div>" +
                     "    <div class='ghe__sidebar-header'>" +
-                    "        <div class='ghe__title'>Pull Request Manager</div>" +
+                    "        <div class='ghe__title'>PRs Improved</div>" +
+                    "        <div class='ghe__settings-button octicon octicon-gear' ng-click='toggleSettings()'></div>" +
                     "    </div>" +
-                    "    <div class='ghe__sidebar-files-wrapper'>" +
+                    "    <div class='ghe__sidebar-files-wrapper' ng-show='!showSettings'>" +
                     "        <a class='ghe__toggle-all-comments-link' ng-click='toggleAllComments()' ng-show='!toExpand'>collapse notes</a>" +
                     "        <a class='ghe__toggle-all-comments-link' ng-click='toggleAllComments()' ng-show='toExpand'>expand notes</a>" +
                     "        <div class='ghe__sidebar-files'>" +
@@ -134,6 +152,9 @@
                     "            </div>" +
                     "            <div class='ghe__files-not-loaded-message' ng-if='files.length === 0'>Your files are not loaded.  They will load when you click on the \"Files Changed\" link.</div>" +
                     "        </div>" +
+                    "    </div>" +
+                    "    <div class='ghe__sidebar-settings' ng-show='showSettings'>" +
+                    "        <label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='openSidebarByDefaultChanged()'>Open sidebar by default</label>" +
                     "    </div>" +
                     "</div>";
                 this._scope.toggleSidebar = function () {
@@ -162,6 +183,13 @@
                         }
                     }
                     window.location.hash = href;
+                };
+                this._scope.toggleSettings = function () {
+                    self._scope.showSettings = !self._scope.showSettings;
+                };
+                this._scope.openSidebarByDefaultChanged = function () {
+                    self._scope.settings.openSidebarByDefaultChanged = !self._scope.settings.openSidebarByDefaultChanged;
+                    self._statusesManager.updateSettings(self._scope.settings);
                 };
                 var $sidebar = $compile(template)(this._scope);
                 var $body = $("body");
@@ -302,6 +330,19 @@
             StatusesManager.prototype.getPullRequestLastOpened = function (repoId, pullRequestId) {
                 var lastOpenedDateString = localStorage.getItem("githubenhancements_pullRequestsOpened_" + repoId.toString() + "_" + pullRequestId.toString());
                 return lastOpenedDateString ? new Date(lastOpenedDateString) : null;
+            };
+
+            StatusesManager.prototype.getSettings = function () {
+                var settingsJSON = localStorage.getItem("githubenhancements_settings");
+                var settings = JSON.parse(settingsJSON);
+                settings = settings || {
+                    openSidebarByDefault: true
+                };
+                return settings;
+            };
+
+            StatusesManager.prototype.updateSettings = function (settings) {
+                localStorage.setItem("githubenhancements_settings", JSON.stringify(settings));
             };
 
             StatusesManager.prototype._getRepos = function () {
@@ -584,14 +625,14 @@
                 this._diffId = diffId;
                 this._onOpen();
                 this._commentsManager.start(diffId);
-                sidebar.open(/*newFiles*/true);
+                sidebar.setup();
             };
 
             DiffManager.prototype._tearDown = function () {
                 if (this._clean) { return; }
                 this._diffId = null;
                 this._commentsManager.stop();
-                sidebar.close(/*permanently*/true);
+                sidebar.teardown();
                 this._clean = true;
             };
 
@@ -810,13 +851,14 @@
             };
             return { init: init }
         })
-        .factory("main", function (listManager, pullRequestManager, ghHttp, StatusesManager, commitManager, smartCopying) {
+        .factory("main", function (listManager, pullRequestManager, ghHttp, StatusesManager, commitManager, smartCopying, sidebar) {
             var run = function () {
                 var repoId = parseInt($("#repository_id").val(), 10);
                 var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
                 var userName = $("[name='octolytics-actor-login']").attr("content");
                 if (!repoId) { return; }
                 var statusesManager = new StatusesManager({ userId: userId });
+                sidebar.init({ statusesManager: statusesManager });
                 listManager.init({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
                 pullRequestManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
                 commitManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
