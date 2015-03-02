@@ -1,4 +1,4 @@
-/* global $, _ */
+/* global $, _, document */
 (function () {
     "use strict";
     angular.module('core', [])
@@ -26,6 +26,30 @@
 
             Sidebar.prototype.setup = function () {
                 var self = this;
+                $(document).on("keydown", null, "meta+j", function () {
+                    self._scrollToFile(/*prev*/false);
+                });
+                $(document).on("keydown", null, "meta+k", function () {
+                    self._scrollToFile(/*prev*/true);
+                });
+                $(document).on("keydown", null, "alt+j", function () {
+                    self._scrollToCodeChange(/*prev*/false);
+                });
+                $(document).on("keydown", null, "alt+k", function () {
+                    self._scrollToCodeChange(/*prev*/true);
+                });
+                $(document).on("keydown", null, "ctrl+j", function () {
+                    self._scrollToComment(/*prev*/false);
+                });
+                $(document).on("keydown", null, "ctrl+k", function () {
+                    self._scrollToComment(/*prev*/true);
+                });
+                $(document).on("keydown", null, "ctrl+shift+j", function () {
+                    self._scrollToComment(/*prev*/false, /*unread*/true);
+                });
+                $(document).on("keydown", null, "ctrl+shift+k", function () {
+                    self._scrollToComment(/*prev*/true, /*unread*/true);
+                });
                 this._renderSidebar();
                 $timeout(function () {
                     var settings = self._statusesManager.getSettings();
@@ -122,6 +146,7 @@
                 this._scope.files = this._getFiles();
                 if (!this._scope.files.length) {
                     $pullRequestFilesLink.on("click.loadingFiles", function () {
+                        $interval.cancel(self._getFilesInterval);
                         self._getFilesInterval = $interval(function () {
                             self._scope.files = self._getFiles();
                             if (self._scope.files.length) {
@@ -154,7 +179,15 @@
                     "        </div>" +
                     "    </div>" +
                     "    <div class='ghe__sidebar-settings' ng-show='showSettings'>" +
-                    "        <label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='openSidebarByDefaultChanged()'>Open sidebar by default</label>" +
+                    "        <div class='ghe__settings-row ghe__settings-checkbox-row'><label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='settingChanged(\"openSidebarByDefaultChanged\")'>Open sidebar by default</label></div>" +
+                    "        <div class='ghe__settings-row'><label>Next/prev file:</label></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CMD + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><label>Next/prev change:</label></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>ALT + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><label>Next/prev comment:</label></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><label>Next/prev unread comment:</label></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + SHIFT + j/k</span></div>" +
                     "    </div>" +
                     "</div>";
                 this._scope.toggleSidebar = function () {
@@ -177,18 +210,13 @@
                     self._scope.toExpand = !self._scope.toExpand;
                 };
                 this._scope.openFile = function(href) {
-                    if (window.location.pathname.indexOf("files") === -1) {
-                        if ($pullRequestFilesLink.length) {
-                            $pullRequestFilesLink[0].click();
-                        }
-                    }
-                    window.location.hash = href;
+                    self._openFile(href);
                 };
                 this._scope.toggleSettings = function () {
                     self._scope.showSettings = !self._scope.showSettings;
                 };
-                this._scope.openSidebarByDefaultChanged = function () {
-                    self._scope.settings.openSidebarByDefaultChanged = !self._scope.settings.openSidebarByDefaultChanged;
+                this._scope.settingChanged = function (setting) {
+                    self._scope.settings[setting] = !self._scope.settings[setting];
                     self._statusesManager.updateSettings(self._scope.settings);
                 };
                 var $sidebar = $compile(template)(this._scope);
@@ -202,7 +230,7 @@
                     var $diffIcon = $e.siblings(".octicon").clone();
                     var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
                     var fullPath = $e.text().trim();
-                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon, path: fullPath };
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon, path: fullPath, $file: $("#diff-"+i), index: i };
                 });
                 var fileCommentInfos = $(".file.js-details-container").map(function (i, e) {
                     var $e = $(e);
@@ -213,6 +241,103 @@
                     _.extend(file, fileCommentInfo);
                 });
                 return files;
+            };
+
+            Sidebar.prototype._getCodeChanges = function () {
+                var changedLines = $(".blob-code-addition:visible, .blob-code-deletion:visible");
+                var filteredChangedLines = [];
+                var i = 0;
+                _.each(changedLines, function (changedLine) {
+                    var $changedLine = $(changedLine);
+                    var $row = $changedLine.closest("tr");
+                    var $rowAbove = $row.prev();
+                    var $rowAboveHasChanges = $rowAbove.find(".blob-code-addition, .blob-code-deletion").length;
+                    if (!$rowAboveHasChanges) {
+                        filteredChangedLines.push({ $element: $changedLine, index: i });
+                        i++;
+                    }
+                });
+                return filteredChangedLines;
+            };
+
+            Sidebar.prototype._getComments = function (onlyUnread) {
+                var comments = $("[data-body-version]:visible");
+                if (onlyUnread) {
+                    comments = comments.filter(".unread-label");
+                }
+                return comments.map(function (i, e) {
+                    return { $element: $(e), index: i };
+                });
+            };
+
+            Sidebar.prototype._scrollToFile = function (prev) {
+                var self = this;
+                var $files = this._getFiles();
+                if (!$files.length) { return; }
+                var currentFile = self._currentFile;
+                var nextFile;
+                if (!currentFile || !currentFile.$file.visible(/*partial*/true)) {
+                    nextFile = _.find($files, function (file) {
+                        if (file.$file.visible(/*partial*/true)) {
+                            return file;
+                        }
+                    });
+                    if (!nextFile) { nextFile = $files[0]; }
+                } else {
+                    nextFile = $files[currentFile.index + (!prev ? 1 : -1)] || $files[(!prev ? 0 : $files.length-1)];
+                }
+                self._currentFile = nextFile;
+                self._openFile(nextFile.href);
+            };
+
+            Sidebar.prototype._scrollToCodeChange = function(prev) {
+                var self = this;
+                var codeChanges = this._getCodeChanges();
+                if (!codeChanges.length) { return; }
+                var currentCodeChange = self._currentCodeChange;
+                var nextCodeChange;
+                if (!currentCodeChange || !currentCodeChange.$element.visible(/*partial*/true)) {
+                    nextCodeChange = _.find(codeChanges, function (codeChange) {
+                        if (codeChange.$element.visible(/*partial*/true)) {
+                            return codeChange;
+                        }
+                    });
+                    if (!nextCodeChange) { nextCodeChange = codeChanges[0]; }
+                } else {
+                    nextCodeChange = codeChanges[currentCodeChange.index + (!prev ? 1 : -1)] || codeChanges[(!prev ? 0 : codeChanges.length-1)];
+                }
+                self._currentCodeChange = nextCodeChange;
+                $.scrollTo(nextCodeChange.$element, { offset: -150 });
+            };
+
+            Sidebar.prototype._scrollToComment = function(prev, unread) {
+                var self = this;
+                var comments = this._getComments(unread);
+                if (!comments.length) { return; }
+                var currentComment = self._currentComment;
+                var nextComment;
+                if (!currentComment || !currentComment.$element.visible(/*partial*/true)) {
+                    nextComment = _.find(comments, function (comment) {
+                        if (comment.$element.visible(/*partial*/true)) {
+                            return comment;
+                        }
+                    });
+                    if (!nextComment) { nextComment = comments[0]; }
+                } else {
+                    nextComment = comments[currentComment.index + (!prev ? 1 : -1)] || comments[(!prev ? 0 : comments.length-1)];
+                }
+                self._currentComment = nextComment;
+                $.scrollTo(nextComment.$element, { offset: -150 });
+            };
+
+            Sidebar.prototype._openFile = function (href) {
+                var $pullRequestFilesLink = $("[data-container-id='files_bucket']");
+                if (window.location.pathname.indexOf("files") === -1) {
+                    if ($pullRequestFilesLink.length) {
+                        $pullRequestFilesLink[0].click();
+                    }
+                }
+                window.location.hash = href;
             };
 
             return new Sidebar();

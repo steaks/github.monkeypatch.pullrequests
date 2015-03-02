@@ -165,6 +165,18 @@
     margin-left: 10px;
 }
 
+.ghe__settings-row {
+    margin-bottom: 5px;
+}
+
+.ghe__settings-checkbox-row {
+    margin-bottom: 30px ;
+}
+
 .ghe__settings-checkbox-input {
     margin-right: 10px;
+}
+
+.ghe__shortcut-keys {
+    margin-left: 10px;
 }
