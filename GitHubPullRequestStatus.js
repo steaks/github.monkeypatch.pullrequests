@@ -50,6 +50,9 @@
                 $(document).on("keydown", null, "ctrl+shift+k", function () {
                     self._scrollToComment(/*prev*/true, /*unread*/true);
                 });
+                $(document).on("keydown", null, "alt+c", function () {
+                    self._toggleAllComments();
+                });
                 this._renderSidebar();
                 $timeout(function () {
                     var settings = self._statusesManager.getSettings();
@@ -181,13 +184,15 @@
                     "    <div class='ghe__sidebar-settings' ng-show='showSettings'>" +
                     "        <div class='ghe__settings-row ghe__settings-checkbox-row'><label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='settingChanged(\"openSidebarByDefaultChanged\")'>Open sidebar by default</label></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev file:</label></div>" +
-                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CMD + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CMD + J/K</span></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev change:</label></div>" +
-                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>ALT + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>ALT + J/K</span></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev comment:</label></div>" +
-                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + J/K</span></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev unread comment:</label></div>" +
-                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + SHIFT + j/k</span></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CTRL + SHIFT + J/K</span></div>" +
+                    "        <div class='ghe__settings-row'><label>Toggle comments:</label></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>ALT + C</span></div>" +
                     "    </div>" +
                     "</div>";
                 this._scope.toggleSidebar = function () {
@@ -201,13 +206,7 @@
                     file.$toggleCommentsCheckbox[0].click();
                 };
                 this._scope.toggleAllComments = function () {
-                    _.each(self._scope.files, function (file) {
-                        var commentsShown = file.$toggleCommentsCheckbox.is(":checked");
-                        if (self._scope.toExpand !== commentsShown) {
-                            file.$toggleCommentsCheckbox[0].click();
-                        }
-                    });
-                    self._scope.toExpand = !self._scope.toExpand;
+                    self._toggleAllComments();
                 };
                 this._scope.openFile = function(href) {
                     self._openFile(href);
@@ -222,6 +221,17 @@
                 var $sidebar = $compile(template)(this._scope);
                 var $body = $("body");
                 $body.prepend($sidebar);
+            };
+
+            Sidebar.prototype._toggleAllComments = function () {
+                var self = this;
+                _.each(self._scope.files, function (file) {
+                    var commentsShown = file.$toggleCommentsCheckbox.is(":checked");
+                    if (self._scope.toExpand !== commentsShown) {
+                        file.$toggleCommentsCheckbox[0].click();
+                    }
+                });
+                self._scope.toExpand = !self._scope.toExpand;
             };
 
             Sidebar.prototype._getFiles = function () {
