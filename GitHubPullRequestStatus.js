@@ -27,10 +27,14 @@
             Sidebar.prototype.setup = function () {
                 var self = this;
                 $(document).on("keydown", null, "meta+j", function () {
-                    self._scrollToFile(/*prev*/false);
+                    self._scope.$apply(function () {
+                        self._scrollToFile(/*prev*/false);
+                    });
                 });
                 $(document).on("keydown", null, "meta+k", function () {
-                    self._scrollToFile(/*prev*/true);
+                    self._scope.$apply(function () {
+                        self._scrollToFile(/*prev*/true);
+                    });
                 });
                 $(document).on("keydown", null, "alt+j", function () {
                     self._scrollToCodeChange(/*prev*/false);
@@ -300,7 +304,7 @@
 
             Sidebar.prototype._scrollToFile = function (prev) {
                 var self = this;
-                var $files = this._getFiles();
+                var $files = this._scope.files;
                 if (!$files.length) { return; }
                 var currentFile = self._currentFile;
                 var nextFile;
