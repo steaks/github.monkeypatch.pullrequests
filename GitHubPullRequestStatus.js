@@ -53,6 +53,9 @@
                 $(document).on("keydown", null, "alt+c", function () {
                     self._toggleAllComments();
                 });
+                $(document).scroll(function () {
+                    self._setActiveFile();
+                });
                 this._renderSidebar();
                 $timeout(function () {
                     var settings = self._statusesManager.getSettings();
@@ -138,8 +141,23 @@
                 return deferred.promise;
             };
 
-            Sidebar.prototype._clearFiles = function () {
-                this._scope.files = [];
+            Sidebar.prototype._setActiveFile = function (activeFile) {
+                var markedActiveFile = false;
+                if (this._scope.files && this._scope.files.length) {
+                    if (activeFile) {
+                        _.each(this._scope.files, function (file) { file.active = false; });
+                        activeFile.active = true;
+                    } else {
+                        _.each(this._scope.files, function (file) {
+                            if (!markedActiveFile) {
+                              file.active = !markedActiveFile && file.$file.visible(/*partial*/true);
+                              markedActiveFile = file.active;
+                            } else {
+                              file.active = false;
+                            }
+                        });
+                    }
+                }
             };
 
             Sidebar.prototype._renderSidebar = function () {
@@ -176,7 +194,7 @@
                     "        <div class='ghe__sidebar-files'>" +
                     "            <div ng-repeat='file in files' class='ghe__file-wrapper'>" +
                     "                <div class='ghe__file-icon' ng-bind-html='file.icon'></div>" +
-                    "                <a class='ghe__file-link' ng-click='openFile(file.href)' title='{{file.path}}'>{{file.name}}</a><a class='ghe__comment-link' ng-click='toggleComments(file)' title='toggle notes'><span class='octicon octicon-comment'>{{file.numComments}}</span></a>" +
+                    "                <a class='ghe__file-link' ng-click='openFile(file)' title='{{file.path}}' ng-class=\"{'active': file.active}\">{{file.name}}</a><a class='ghe__comment-link' ng-click='toggleComments(file)' title='toggle notes'><span class='octicon octicon-comment'>{{file.numComments}}</span></a>" +
                     "            </div>" +
                     "            <div class='ghe__files-not-loaded-message' ng-if='files.length === 0'>Your files are not loaded.  They will load when you click on the \"Files Changed\" link.</div>" +
                     "        </div>" +
@@ -208,8 +226,8 @@
                 this._scope.toggleAllComments = function () {
                     self._toggleAllComments();
                 };
-                this._scope.openFile = function(href) {
-                    self._openFile(href);
+                this._scope.openFile = function(file) {
+                    self._openFile(file);
                 };
                 this._scope.toggleSettings = function () {
                     self._scope.showSettings = !self._scope.showSettings;
@@ -240,11 +258,11 @@
                     var $diffIcon = $e.siblings(".octicon").clone();
                     var icon = $sce.trustAsHtml($diffIcon[0].outerHTML);
                     var fullPath = $e.text().trim();
-                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon, path: fullPath, $file: $("#diff-"+i), index: i };
+                    return { name: _.last(fullPath.split("/")), href: $e.attr("href"), icon: icon, path: fullPath, $file: $("#diff-"+i), index: i, active: false };
                 });
                 var fileCommentInfos = $(".file.js-details-container").map(function (i, e) {
                     var $e = $(e);
-                    return { $toggleCommentsCheckbox: $e.find(".js-toggle-file-notes"), numComments: $e.find("[data-body-version]").length };
+                    return { $toggleCommentsCheckbox: $e.find(".js-toggle-file-notes"), numComments: $e.find("[data-body-version]:visible").length };
                 });
                 _.each(files, function (file, i) {
                     var fileCommentInfo = fileCommentInfos[i];
@@ -297,7 +315,7 @@
                     nextFile = $files[currentFile.index + (!prev ? 1 : -1)] || $files[(!prev ? 0 : $files.length-1)];
                 }
                 self._currentFile = nextFile;
-                self._openFile(nextFile.href);
+                self._openFile(nextFile);
             };
 
             Sidebar.prototype._scrollToCodeChange = function(prev) {
@@ -340,14 +358,15 @@
                 $.scrollTo(nextComment.$element, { offset: -150 });
             };
 
-            Sidebar.prototype._openFile = function (href) {
+            Sidebar.prototype._openFile = function (file) {
                 var $pullRequestFilesLink = $("[data-container-id='files_bucket']");
                 if (window.location.pathname.indexOf("files") === -1) {
                     if ($pullRequestFilesLink.length) {
                         $pullRequestFilesLink[0].click();
                     }
                 }
-                window.location.hash = href;
+                window.location.hash = file.href;
+                this._setActiveFile(file);
             };
 
             return new Sidebar();
@@ -655,7 +674,7 @@
                 var self = this;
                 this._cleanup();
                 this._diffId = diffId;
-                $("[data-body-version]").on("click", function (e) {
+                $("[data-body-version]:visible").on("click", function (e) {
                     var commentId = $(e.currentTarget).attr("data-body-version");
                     self._onRead(commentId);
                     self._sync();
@@ -672,14 +691,14 @@
 
             CommentsManager.prototype._cleanup = function () {
                 this._diffId = null;
-                $("[data-body-version]").off("click");
+                $("[data-body-version]:visible").off("click");
                 $interval.cancel(this._interval);
             };
 
             CommentsManager.prototype._sync = function () {
                 var self = this;
                 var readComments = this._getReadComments();
-                $("[data-body-version]").each(function (i, e) {
+                $("[data-body-version]:visible").each(function (i, e) {
                     var $e = $(e);
                     if ($e.css("display") === "none") { return; }
                     if (self._getCommentUserName($e) === self._userName) { return; }

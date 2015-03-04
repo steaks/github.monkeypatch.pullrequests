@@ -53,6 +53,10 @@
     cursor: pointer;
 }
 
+.ghe__file-link.active {
+    font-weight: 600;
+}
+
 .ghe__files-not-loaded-message {
     margin-top: 100px;
     margin-left: 15px;
