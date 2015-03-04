@@ -31,8 +31,8 @@
                 bViz = rec.bottom >  0 && rec.bottom <= vpHeight,
                 lViz = rec.left   >= 0 && rec.left   <  vpWidth,
                 rViz = rec.right  >  0 && rec.right  <= vpWidth,
-                vVisible   = partial ? tViz || bViz : tViz && bViz,
-                hVisible   = partial ? lViz || rViz : lViz && rViz;
+                vVisible   = partial ? tViz || bViz || (rec.top < 0 && rec.bottom > vpHeight) : tViz && bViz,
+                hVisible   = partial ? lViz || rViz || (rec.left < 0 && rec.right > vpWidth): lViz && rViz;
 
             if(direction === 'both')
                 return clientSize && vVisible && hVisible;
