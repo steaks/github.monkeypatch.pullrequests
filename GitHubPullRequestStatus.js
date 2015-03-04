@@ -60,6 +60,9 @@
                 $(document).scroll(function () {
                     self._setActiveFile();
                 });
+                $(window).on("hashchange", function () {
+                    self._setActiveFile();
+                });
                 this._renderSidebar();
                 $timeout(function () {
                     var settings = self._statusesManager.getSettings();
@@ -176,6 +179,7 @@
                             self._scope.files = self._getFiles();
                             if (self._scope.files.length) {
                                 $interval.cancel(self._getFilesInterval);
+                                $timeout(function () { self._setActiveFile(); })
                             }
                         }, 1000);
                     });
@@ -243,6 +247,7 @@
                 var $sidebar = $compile(template)(this._scope);
                 var $body = $("body");
                 $body.prepend($sidebar);
+                $timeout(function () { self._setActiveFile(); })
             };
 
             Sidebar.prototype._toggleAllComments = function () {
