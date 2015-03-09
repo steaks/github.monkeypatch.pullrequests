@@ -22,6 +22,8 @@
                 this._scope = $rootScope.$new();
                 this._scope.showSettings = false;
                 this._scope.settings = this._statusesManager.getSettings();
+                this._isMac = window.navigator.platform === "MacIntel";
+                this._scope.metaKey = this._isMac ? "CMD" : "WIN";
             };
 
             Sidebar.prototype.setup = function () {
@@ -167,6 +169,10 @@
                 }
             };
 
+            Sidebar.prototype._clearFiles = function () {
+              this._scope.files = [];
+            };
+
             Sidebar.prototype._renderSidebar = function () {
                 var self = this;
                 var $pullRequestFilesLink = $("[data-container-id='files_bucket']");
@@ -210,7 +216,7 @@
                     "    <div class='ghe__sidebar-settings' ng-show='showSettings'>" +
                     "        <div class='ghe__settings-row ghe__settings-checkbox-row'><label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='settingChanged(\"openSidebarByDefaultChanged\")'>Open sidebar by default</label></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev file:</label></div>" +
-                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>CMD + J/K</span></div>" +
+                    "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>{{metaKey}} + J/K</span></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev change:</label></div>" +
                     "        <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>ALT + J/K</span></div>" +
                     "        <div class='ghe__settings-row'><label>Next/prev comment:</label></div>" +
