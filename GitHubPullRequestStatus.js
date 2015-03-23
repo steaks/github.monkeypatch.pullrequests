@@ -794,6 +794,7 @@
         this._diffId = diffId;
         this._onOpen();
         this._commentsManager.start(diffId);
+        this._setupFileExpander();
         sidebar.setup();
       };
 
@@ -801,6 +802,7 @@
         if (this._clean) { return; }
         this._diffId = null;
         this._commentsManager.stop();
+        this._tearDownFileExpander();
         sidebar.teardown();
         this._clean = true;
       };
@@ -815,6 +817,24 @@
 
       DiffManager.prototype._onOpen = function () {
         this._callbacks.onOpen(this._diffId);
+      };
+
+      DiffManager.prototype._setupFileExpander = function () {
+        $("#files .file .file-header").on("click.fileExpander", function (e) {
+          var $target = $(e.target);
+          if ($target.hasClass(".file-actions") || $target.closest(".file-actions").length > 0) { return; }
+          var $e = $(e.currentTarget);
+          var $body = $e.closest(".file").find(".blob-wrapper");
+          if ($body.css("display") === "none") {
+            $body.css("display", "");
+          } else {
+            $body.css("display", "none");
+          }
+        });
+      };
+
+      DiffManager.prototype._tearDownFileExpander = function () {
+        $("#files .file .file-header").off("click.fileExpander");
       };
 
       return DiffManager;
