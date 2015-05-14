@@ -13,6 +13,7 @@
       function Sidebar() { }
 
       Sidebar.prototype.init = function (config) {
+        var self = this;
         this._scope = null;
         this._isOpen = false;
         this._animationDuration = 300;
@@ -21,7 +22,10 @@
         this._statusesManager = config.statusesManager;
         this._scope = $rootScope.$new();
         this._scope.showSettings = false;
-        this._scope.settings = this._statusesManager.getSettings();
+        this._statusesManager.getSettings()
+          .then(function (settings) {
+            self._scope.settings = settings;
+          });
         this._isMac = window.navigator.platform === "MacIntel";
         this._scope.metaKey = this._isMac ? "CMD" : "WIN";
       };
@@ -67,12 +71,14 @@
         });
         this._renderSidebar();
         $timeout(function () {
-          var settings = self._statusesManager.getSettings();
-          if (settings.openSidebarByDefault) {
-            self.open();
-          } else {
-            self.close();
-          }
+          self._statusesManager.getSettings()
+            .then(function (settings) {
+              if (settings.open_side_bar_by_default) {
+                self.open();
+              } else {
+                self.close();
+              }
+            });
         }, 500);
       };
 
@@ -214,7 +220,7 @@
           "    </div>" +
           "  </div>" +
           "  <div class='ghe__sidebar-settings' ng-show='showSettings'>" +
-          "    <div class='ghe__settings-row ghe__settings-checkbox-row'><label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.openSidebarByDefault' ng-change='settingChanged(\"openSidebarByDefaultChanged\")'>Open sidebar by default</label></div>" +
+          "    <div class='ghe__settings-row ghe__settings-checkbox-row'><label class='ghe__settings-checkbox-label'><input class='ghe__settings-checkbox-input' type='checkbox' ng-model='settings.open_side_bar_by_default' ng-change='settingChanged(\"open_side_bar_by_default\")'>Open sidebar by default</label></div>" +
           "    <div class='ghe__settings-row'><label>Next/prev file:</label></div>" +
           "    <div class='ghe__settings-row'><span class='ghe__shortcut-keys'>{{metaKey}} + J/K</span></div>" +
           "    <div class='ghe__settings-row'><label>Next/prev change:</label></div>" +
@@ -247,7 +253,6 @@
           self._scope.showSettings = !self._scope.showSettings;
         };
         this._scope.settingChanged = function (setting) {
-          self._scope.settings[setting] = !self._scope.settings[setting];
           self._statusesManager.updateSettings(self._scope.settings);
         };
         var $sidebar = $compile(template)(this._scope);
@@ -386,17 +391,18 @@
 
       return new Sidebar();
     })
-    .factory("StatusesManager", function (StatusOptions, $q, ghHttp) {
+    .factory("StatusesManager", function (StatusOptions, $q, ghHttp, gheData) {
       function StatusesManager(config) {
         this._statuses = {};
         this._userId = config.userId;
+        this._repoOwnerName = config.repoOwnerName;
+        this._repoName = config.repoName;
       }
 
       StatusesManager.prototype.getFromServer = function (repoId, pullRequestIds) {
         var self = this;
-        return this._getRepos().then(function (repos) {
-          var repo = _.find(repos, function (r) { return r.id === repoId; });
-          if (!repo) { return; }
+        return this._getRepo().then(function (repo) {
+          if (repo.id !== repoId) { return; }
 
           var issueCommentsPromises = _.reduce(pullRequestIds, function (seed, pullRequestId) {
             seed[pullRequestId] = ghHttp.get(repo.issues_url.replace("{/number}", "/" + pullRequestId + "/comments"));
@@ -411,13 +417,24 @@
             return seed;
           }, {});
 
+          var pullRequestsToGet = _.map(pullRequestIds, function (pullRequestId) {
+            return [{
+              path: "pullRequestCommits.{repoId}.{pullRequestId}",
+              params: { repoId: repoId, pullRequestId: pullRequestId }
+            }, {
+              path: "pullRequestOpened.{repoId}.{pullRequestId}",
+              params: { repoId: repoId, pullRequestId: pullRequestId }
+            }];
+          });
+
+          var gheInfo = gheData.getMultiple(_.flatten(pullRequestsToGet));
           var issueCommentsPromise = $q.all(issueCommentsPromises).then(function (issueComments) { return issueComments; });
           var pullRequestCommentsPromise = $q.all(pullRequestCommentsPromises).then(function (pullRequestsComments) { return pullRequestsComments; });
           var commitsPromise = $q.all(pullRequestCommitsPromises).then(function (pullRequestsCommits) { return pullRequestsCommits; });
 
-          return $q.all({ issueComments: issueCommentsPromise, pullRequestComments: pullRequestCommentsPromise, commits: commitsPromise })
+          return $q.all({ issueComments: issueCommentsPromise, pullRequestComments: pullRequestCommentsPromise, commits: commitsPromise, gheInfo: gheInfo })
             .then(function (commentsAndCommits) {
-              _.each(commentsAndCommits.issueComments, function (comments, pullRequestId) {
+              var promises = _.map(commentsAndCommits.issueComments, function (comments, pullRequestId) {
                 var allComments = commentsAndCommits.pullRequestComments[pullRequestId].concat(comments);
                 var mostRecentComment =
                   _(allComments)
@@ -432,104 +449,113 @@
                   }
                 });
                 var commits = commentsAndCommits.commits[pullRequestId].commits;
-                self._setInProgressInfo(self._statuses[pullRequestId], repoId, pullRequestId, self._userId, commits);
+                return self._setInProgressInfo(self._statuses[pullRequestId], repoId, pullRequestId, self._userId, commits);
               });
-              return self._statuses;
-            });
+              return $q.all(promises).then(function () { return self._statuses; });
+            })
         });
       };
 
       StatusesManager.prototype.markPullRequestCommits = function(repoId, pullRequestId, commits) {
-        localStorage.setItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(commits));
+        gheData.set("pullRequestCommits.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, commits);
       };
 
       StatusesManager.prototype.getPullRequestCommits = function (repoId, pullRequestId) {
-        return localStorage.getItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString());
+        return gheData.get("pullRequestCommits.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
       };
 
       StatusesManager.prototype.markCommitPullRequests = function(repoId, commitHash, pullRequestIds) {
-        localStorage.setItem("githubenhancements_commitPullRequests_" + repoId.toString() + "_" + commitHash, JSON.stringify(pullRequestIds));
+        gheData.set("commitPullRequests.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash }, pullRequestIds);
       };
 
       StatusesManager.prototype.getCommitPullRequests = function (repoId, commitHash) {
-        return localStorage.getItem("githubenhancements_commitPullRequests_" + repoId.toString() + "_" + commitHash);
+        return gheData.get("commitPullRequests.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash });
       };
 
       StatusesManager.prototype.getReadCommentsOnPullRequest = function (repoId, pullRequestId, includeCommitComments) {
         var self = this;
-        var readCommentsJSON = localStorage.getItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString());
-        var pullRequestComments = JSON.parse(readCommentsJSON || "[]");
-        if (!includeCommitComments) {
-          return pullRequestComments;
-        }
-        var commits = this.getPullRequestCommits(repoId, pullRequestId);
-        var commitComments = _.flatten(commits, function (commitHash) { return self.getReadCommentsOnCommit(repoId, commitHash); });
-        return pullRequestComments.concat(commitComments);
+        return gheData.get("pullRequestReadComments.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId })
+          .then(function (pullRequestComments) {
+            if (!includeCommitComments) {
+              return pullRequestComments;
+            }
+            return self.getPullRequestCommits(repoId, pullRequestId).then(function (commits) {
+              var commentsForCommitsPromises = _.map(commits, function (commitHashObj) {
+                return self.getReadCommentsOnCommit(repoId, commitHashObj.commit_hash);
+              });
+              return $q.all(commentsForCommitsPromises)
+                .then(function (commitCommentsUnflattened) {
+                  var commitComments = _.flatten(commitCommentsUnflattened);
+                  return pullRequestComments.concat(commitComments);
+              });
+            });
+          });
       };
 
       StatusesManager.prototype.getReadCommentsOnCommit = function (repoId, commitHash, includeAllPullRequestComments) {
         var self = this;
-        var readCommentsJSON = localStorage.getItem("githubenhancements_commitReadComments_" + repoId.toString() + "_" + commitHash.toString());
-        var commitComments = JSON.parse(readCommentsJSON || "[]");
-        if (!includeAllPullRequestComments) {
-          return commitComments;
-        }
-        var pullRequestIds = this.getCommitPullRequests(repoId, commitHash);
-        var pullRequestComments = _.flatten(pullRequestIds, function (pullRequestId) { return self.getReadCommentsOnPullRequest(repoId, pullRequestId); });
-        return _.uniq(commitComments.concat(pullRequestComments));
+        return gheData.get("commitReadComments.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash })
+          .then(function (commitComments) {
+            if (!includeAllPullRequestComments) {
+              return commitComments;
+            }
+            return self.getCommitPullRequests(repoId, commitHash)
+              .then(function (pullRequestObjs) {
+                var pullRequestCommentsPromise = _.map(pullRequestObjs, function (pullRequestObj) {
+                  return self.getReadCommentsOnPullRequest(repoId, pullRequestObj.pull_request_id);
+                });
+                $q.all(pullRequestCommentsPromise).then(function (pullRequestCommentsUnflattened) {
+                  var pullRequestComments = _.flatten(pullRequestCommentsUnflattened);
+                  return _.uniq(commitComments.concat(pullRequestComments));
+                })
+              })
+          });
       };
 
       StatusesManager.prototype.addReadComment = function (repoId, pullRequestId, comment) {
-        var readComments = this.getReadCommentsOnPullRequest(repoId, pullRequestId);
-        readComments.push(comment);
-        localStorage.setItem("githubenhancements_pullRequestsReadComments_" + repoId.toString() + "_" + pullRequestId.toString(), JSON.stringify(readComments));
+        gheData.set("pullRequestReadComments.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, comment);
       };
 
       StatusesManager.prototype.addReadCommentOnCommit = function (repoId, commitHash, comment) {
-        var readComments = this.getReadCommentsOnCommit(repoId, commitHash);
-        readComments.push(comment);
-        localStorage.setItem("githubenhancements_commitReadComments_" + repoId.toString() + "_" + commitHash.toString(), JSON.stringify(readComments));
+        gheData.set("commitReadComments.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash }, comment);
       };
 
       StatusesManager.prototype.markPullRequestOpened = function (repoId, pullRequestId) {
         var utcDateTime = new Date().toUTCString();
-        localStorage.setItem("githubenhancements_pullRequestsOpened_" + repoId.toString() + "_" + pullRequestId.toString(), utcDateTime);
+        gheData.set("pullRequestOpened.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, utcDateTime);
       };
 
       StatusesManager.prototype.getPullRequestLastOpened = function (repoId, pullRequestId) {
-        var lastOpenedDateString = localStorage.getItem("githubenhancements_pullRequestsOpened_" + repoId.toString() + "_" + pullRequestId.toString());
-        return lastOpenedDateString ? new Date(lastOpenedDateString) : null;
+        return gheData.get("pullRequestOpened.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
       };
 
       StatusesManager.prototype.getSettings = function () {
-        var settingsJSON = localStorage.getItem("githubenhancements_settings");
-        var settings = JSON.parse(settingsJSON);
-        settings = settings || {
-          openSidebarByDefault: true
-        };
-        return settings;
+        return gheData.get("settings");
       };
 
       StatusesManager.prototype.updateSettings = function (settings) {
-        localStorage.setItem("githubenhancements_settings", JSON.stringify(settings));
+        gheData.set("settings", { userId: this._userId }, settings);
       };
 
-      StatusesManager.prototype._getRepos = function () {
+      StatusesManager.prototype._getRepo = function () {
         var self = this;
-        if (this._repos) {
-          return $q.when(this._repos);
+        if (this._repo) {
+          return $q.when(this._repo);
         }
-        return ghHttp.get("user/repos").then(function (repos) { self._repos = repos; return repos; });
+        return ghHttp.get("repos/{repoOwnerName}/{repoName}".substitute({ repoOwnerName: this._repoOwnerName, repoName: this._repoName }))
+          .then(function (repos) { self._repos = repos; return repos; });
       };
 
       StatusesManager.prototype._setInProgressInfo = function (statuses, repoId, pullRequestId, userId, commits) {
-        var seenCommits = localStorage.getItem("githubenhancements_pullRequestCommits_" + repoId.toString() + "_" + pullRequestId.toString());
-        if (!statuses.users[userId] && seenCommits) {
-          statuses.users[userId] = StatusOptions.inProgress;
-        }
-        if (seenCommits) {
-          statuses.newCommits = commits > JSON.parse(seenCommits).length;
-        }
+        return this.getPullRequestCommits(repoId, pullRequestId)
+          .then(function (seenCommits) {
+            if (!statuses.users[userId] && seenCommits.length) {
+              statuses.users[userId] = StatusOptions.inProgress;
+            }
+            if (seenCommits.length) {
+              statuses.newCommits = commits > seenCommits.length;
+            }
+          });
       };
 
       StatusesManager.prototype._parseComment = function (comment) {
@@ -651,25 +677,30 @@
         var accepts = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.accept; }).length.toString();
         var rejects = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.reject; }).length.toString();
         var mostRecentCommentDatetime = pullRequestInfo.mostRecentCommentDatetime;
-        var lastOpenedDatetime = this._statusesManager.getPullRequestLastOpened(this._repoId, pullRequestId);
-        if ($element.find(".issue-meta .enhancements-pull-request-meta-info-container").length === 0) {
-          $element.find(".issue-meta").append("<span class='enhancements-pull-request-meta-info-container'></span>");
-        }
-        $element
-          .find(".issue-meta .enhancements-pull-request-meta-info-container")
-          .html("")
-          .append(accepts + ' <img class="emoji" title=":+1:" alt=":+1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44d.png" height="15" width="15" align="absmiddle">')
-          .append(rejects + ' <img class="emoji" title=":-1:" alt=":-1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44e.png" height="15" width="15" align="absmiddle">');
-        if (pullRequestInfo.newCommits) {
-          $element
-            .find(".issue-meta .enhancements-pull-request-meta-info-container")
-            .append("<span>&nbsp;&nbsp; NEW COMMITS</span>");
-        }
-        if (mostRecentCommentDatetime > lastOpenedDatetime) {
-          $element
-            .find(".issue-meta .enhancements-pull-request-meta-info-container")
-            .append("<span>&nbsp;&nbsp; NEW COMMENTS</span>");
-        }
+        this._statusesManager.getPullRequestLastOpened(this._repoId, pullRequestId)
+          .then(function (lastOpenedDatetime) {
+            lastOpenedDatetime = new Date(lastOpenedDatetime);
+            if ($element.find(".issue-meta .enhancements-pull-request-meta-info-container").length === 0) {
+              $element.find(".issue-meta").append("<span class='enhancements-pull-request-meta-info-container'></span>");
+            }
+            $element
+              .find(".issue-meta .enhancements-pull-request-meta-info-container")
+              .html("")
+              .append(accepts + ' <img class="emoji" title=":+1:" alt=":+1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44d.png" height="15" width="15" align="absmiddle">')
+              .append(rejects + ' <img class="emoji" title=":-1:" alt=":-1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44e.png" height="15" width="15" align="absmiddle">');
+            if (pullRequestInfo.newCommits) {
+              $element
+                .find(".issue-meta .enhancements-pull-request-meta-info-container")
+                .append("<span>&nbsp;&nbsp; NEW COMMITS</span>");
+            }
+            if (mostRecentCommentDatetime > lastOpenedDatetime ||
+               (!isNaN(mostRecentCommentDatetime.getTime()) && isNaN(lastOpenedDatetime.getTime()))
+            ) {
+              $element
+                .find(".issue-meta .enhancements-pull-request-meta-info-container")
+                .append("<span>&nbsp;&nbsp; NEW COMMENTS</span>");
+            }
+          });
       };
 
       return { init: function (config) { return new ListManager(config); } };
@@ -712,22 +743,23 @@
 
       CommentsManager.prototype._sync = function () {
         var self = this;
-        var readComments = this._getReadComments();
-        $("[data-body-version]:visible").each(function (i, e) {
-          var $e = $(e);
-          if ($e.css("display") === "none") { return; }
-          if (self._getCommentUserName($e) === self._userName) { return; }
-          var dataBodyVersion = $e.attr("data-body-version");
-          $e.find(".unread-label").remove();
-          if (readComments.indexOf(dataBodyVersion) === -1) {
-            $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
-            $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
-            self._markReadIfAppropriate($e, dataBodyVersion);
-          }
-          else {
-            $e.find(".timeline-comment-header").css("background-color", "");
-          }
-        });
+        this._getReadComments()
+          .then(function (readComments) {
+            $("[data-body-version]:visible").each(function (i, e) {
+              var $e = $(e);
+              if ($e.css("display") === "none") { return; }
+              if (self._getCommentUserName($e) === self._userName) { return; }
+              var dataBodyVersion = $e.attr("data-body-version");
+              $e.find(".unread-label").remove();
+              if (!_.any(readComments, function (c) { return c.comment_id === dataBodyVersion; })) {
+                $e.find(".timeline-comment-header-text").append("<span class='unread-label'>&nbsp;&nbsp; UNREAD</span>");
+                $e.find(".timeline-comment-header").css("background-color", "rgba(255, 239, 198, 0.4)");
+                self._markReadIfAppropriate($e, dataBodyVersion);
+              } else {
+                $e.find(".timeline-comment-header").css("background-color", "");
+              }
+            });
+          });
       };
 
       CommentsManager.prototype._markReadIfAppropriate = function ($element, commentId) {
@@ -946,7 +978,7 @@
             config = config || {};
             config.headers = {
               Authorization: "token " + accessToken,
-              Accept: "application/vnd.github.moondragon-preview+json"
+              Accept: "application/vnd.github.moondragon+json"
             };
             if (url.indexOf("https://api.github.com/") === -1) {
               url = "https://api.github.com/" + url;
@@ -1000,6 +1032,203 @@
 
       return new GHHttp();
     })
+    .factory("gheCache", function () {
+      function CacheNode(value) {
+        this._value = value;
+        this._isDirty = false;
+      }
+
+      CacheNode.prototype = {
+        get value() {
+          return angular.copy(this._value);
+        },
+        set value(val) {
+          this._isDirty = false;
+          this._value = val;
+        },
+        get isDirty() {
+          return this._isDirty;
+        },
+        markDirty: function () {
+          this._isDirty = true;
+        }
+      };
+
+      function GHECache() {
+        this._root = {};
+      }
+
+      GHECache.prototype = {
+        get: function (path) {
+          return this._root[path];
+        },
+        set: function (path, value) {
+          this._root[path] = new CacheNode(value);
+        },
+        markDirty: function (path) {
+          var cacheNode = this._root[path];
+          if (cacheNode) {
+            cacheNode.markDirty();
+          }
+        }
+      };
+
+      return new GHECache();
+    })
+    .factory("gheData", function (gheHttp, gheCache, $q) {
+      function RequestConfig(path, params) {
+        this.cachePath = path.substitute(params).replaceAll(".", "_");
+        this.params = params;
+        var firstPeriod = path.indexOf(".");
+        this.url = path.substring(0, firstPeriod !== -1 ? firstPeriod : path.length);
+      }
+
+      function GHEData() {
+        this.requests = { };
+        this.nextRequestId = 0;
+      }
+
+      GHEData.prototype = {
+        get: function (path, params) {
+          var self = this;
+          var requestConfig = new RequestConfig(path, params);
+
+          var cacheNode = gheCache.get(requestConfig.cachePath);
+          if (cacheNode && !cacheNode.isDirty) {
+            return $q.when(cacheNode.value);
+          }
+
+          var currentRequest = this.getRequest(requestConfig.cachePath, "get");
+          if (currentRequest) {
+            return currentRequest;
+          }
+
+          var request = this._getFromHttp(requestConfig)
+            .then(/*success*/function (data) { self.deregisterRequest(requestConfig.cachePath, "get", request); return data; },
+                  /*fail*/function (data) { self.deregisterRequest(requestConfig.cachePath, "get", request); return data; });
+
+          this.registerRequest(requestConfig.cachePath, "get", request);
+          return request;
+        },
+        getMultiple: function (params) {
+          _.filter(params, function (p) {
+            var cachePath = p.path.substitute(p.params).replaceAll(".", "_");
+            var cacheNode = gheCache.get(cachePath);
+            return !cacheNode || cacheNode.isDirty;
+          });
+          return gheHttp.post("multiple", params)
+            .then(function (response) {
+              _.each(response.data, function (resp) {
+                var cachePath = resp.path.substitute(resp.params).replaceAll(".", "_");
+                gheCache.set(cachePath, resp.data)
+              })
+          });
+        },
+        set: function (path, params, data) {
+          var self = this;
+          var requestConfig = new RequestConfig(path, params);
+          gheCache.markDirty(requestConfig.cachePath);
+
+          var request = gheHttp
+            .post(requestConfig.url, data, { params: params } )
+            .finally(function () {
+              self.deregisterRequest(requestConfig.cachePath, "post", request);
+            });
+
+          this.registerRequest(requestConfig.cachePath, "post", request);
+        },
+        registerRequest: function (cachePath, type, request) {
+          var requestNode = this.requests[cachePath];
+          if (!requestNode) {
+            requestNode = {
+              get: null,
+              post: []
+            };
+            this.requests[cachePath] = requestNode;
+          }
+          if (type === "get") {
+            requestNode.get = request;
+          } else {
+            requestNode.post.push(request);
+            if (requestNode.get) {
+              requestNode.get.invalid = true;
+            }
+          }
+          request.requestId = this.nextRequestId;
+          this.nextRequestId++;
+        },
+        deregisterRequest: function (cachePath, type, registeredRequest) {
+          var requestNode = this.requests[cachePath];
+          if (type === "get") {
+            if (requestNode.get.requestId === registeredRequest.requestId) {
+              requestNode.get = null;
+            } else {
+              throw new Error("Request ids don't match");
+            }
+          } else {
+            var requestRemoved = false;
+            _.remove(requestNode.post, function (r) {
+              var toRemove = r.requestId === registeredRequest.requestId;
+              if (toRemove) {
+                requestRemoved = true;
+              }
+              return toRemove;
+            });
+            if (!requestRemoved) { throw new Error("Request id did not match"); }
+          }
+        },
+        getRequest: function (cachePath, type) {
+          var requestNode = this.requests[cachePath];
+          if (requestNode) {
+            if (type === "get") {
+              return requestNode.get;
+            } else {
+              return requestNode.post;
+            }
+          }
+          return null;
+        },
+        _getFromHttp: function (requestConfig) {
+          var self = this;
+          var request = gheHttp.get(requestConfig.url, requestConfig.params)
+            .then(function (data) {
+              var currentPostRequests;
+              if (request.invalid) {
+                request.invalid = false;
+                currentPostRequests = self.getRequest(requestConfig.cachePath, "post");
+                return $q.all(currentPostRequests).then(function () { return self._getFromHttp(requestConfig); });
+              }
+              gheCache.set(requestConfig.cachePath, data);
+              return data;
+            });
+          return request;
+        }
+      };
+
+      return new GHEData();
+    })
+    .factory("gheHttp", function ($http) {
+      function GHEHttp() {}
+
+      GHEHttp.prototype = {
+        get: function (url, params, config) {
+          var decoratedParams = angular.extend({ gitHubUserId: window.gitHubUserId }, params);
+          return $http.get("https://66ac37ee.ngrok.com/enhancements/" + url, { params: decoratedParams })
+            .then(function(response) {
+              return response.data;
+            });
+        },
+        post: function (url, data, config) {
+          config = config || {};
+          config.params = config.params || {};
+          var decoratedParams = angular.extend({ gitHubUserId: window.gitHubUserId }, config.params);
+          config.params = decoratedParams;
+          return $http.post("https://66ac37ee.ngrok.com/enhancements/" + url, { data: data }, config);
+        }
+      };
+
+      return new GHEHttp();
+    })
     .factory("smartCopying", function () {
       var init = function () {
         function resolveLineEnding(selectionText, lines) {
@@ -1040,13 +1269,53 @@
       };
       return { init: init }
     })
-    .factory("main", function (listManager, pullRequestManager, ghHttp, StatusesManager, commitManager, smartCopying, sidebar) {
+    .factory("monkeyPatch", function () {
+      return {
+        run: function () {
+          if (!String.prototype.substitute) {
+            (function () {
+              var subregex = /\{\s*([^|}]+?)\s*(?:\|([^}]*))?\s*\}/g;
+              //Perform placeholder substitution on str by matching {placeholder}
+              //with keys in the provided dict.  For example,
+              //substitute("The happy {animal}", { animal : "dog" }) will return
+              //The happy dog.
+              //substitute was taken from Y.Lang.sub (http://yuilibrary.com/yui/docs/api/classes/Lang.html#method_sub)
+              String.prototype.substitute = function (dict) {
+                return this.toString().replace(subregex, function (match, key) {
+                  return dict[key] === undefined ? match : dict[key];
+                });
+              };
+            })();
+          } else {
+            throw new Error("String.prototype.substitute is already defined");
+          }
+
+          if (!String.prototype.replaceAll) {
+            (function () {
+              function escapeRegExp(string) {
+                return string.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
+              }
+              String.prototype.replaceAll = function (find, replace) {
+                return this.toString().replace(new RegExp(escapeRegExp(find), 'g'), replace);
+              };
+            })();
+          } else {
+            throw new Error("String.prototype.replaceAll is already defined");
+          }
+        }
+      };
+    })
+    .factory("main", function (listManager, pullRequestManager, ghHttp, StatusesManager, commitManager, smartCopying, sidebar, monkeyPatch) {
       var run = function () {
+        monkeyPatch.run();
         var repoId = parseInt($("#repository_id").val(), 10);
         var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
+        window.gitHubUserId = userId;
         var userName = $("[name='octolytics-actor-login']").attr("content");
+        var repoOwnerName = $(".author span").text();
+        var repoName = $(".js-current-repository").text();
         if (!repoId) { return; }
-        var statusesManager = new StatusesManager({ userId: userId });
+        var statusesManager = new StatusesManager({ userId: userId, repoOwnerName: repoOwnerName, repoName: repoName });
         sidebar.init({ statusesManager: statusesManager });
         listManager.init({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
         pullRequestManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
