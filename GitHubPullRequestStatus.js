@@ -966,7 +966,7 @@
         return query_string;
       };
     })
-    .factory("ghHttp", function ($http, parseQueryString, $q) {
+    .factory("ghHttp", function ($http, parseQueryString, $q, gheHttp) {
       function GHHttp() {
         this._failedToGetAccessToken = false;
       }
@@ -995,6 +995,13 @@
           });
       };
 
+      GHHttp.prototype.initAccessToken = function () {
+        return this.get("user", { })
+          .then(function () {
+            return gheHttp.post("configure", { gitHubUserId: window.gitHubUserId });
+          });
+      };
+
       GHHttp.prototype.getAccessToken = function() {
         var self = this;
         var queryString = parseQueryString();
@@ -1005,7 +1012,7 @@
         else if (this._failedToGetAccessToken) {
           return $q.reject("failedToGetAccessToken");
         }
-        else if (queryString.code)  {
+        else if (queryString.code) {
           return $http.post("https://www.platform.githubenhancements.com/enhancements/requestAccessToken?code=" + queryString.code)
             .then(function (response) {
               if (!response.data.access_token) { return $q.reject("failedToGetAccessToken"); }
@@ -1212,7 +1219,8 @@
 
       GHEHttp.prototype = {
         get: function (url, params, config) {
-          var decoratedParams = angular.extend({ gitHubUserId: window.gitHubUserId }, params);
+          var accessToken = localStorage.getItem("githubenhancements_accessToken");
+          var decoratedParams = angular.extend({ accessToken: accessToken }, params);
           return $http.get("https://66ac37ee.ngrok.com/enhancements/" + url, { params: decoratedParams })
             .then(function(response) {
               return response.data;
@@ -1221,7 +1229,8 @@
         post: function (url, data, config) {
           config = config || {};
           config.params = config.params || {};
-          var decoratedParams = angular.extend({ gitHubUserId: window.gitHubUserId }, config.params);
+          var accessToken = localStorage.getItem("githubenhancements_accessToken");
+          var decoratedParams = angular.extend({ accessToken: accessToken }, config.params);
           config.params = decoratedParams;
           return $http.post("https://66ac37ee.ngrok.com/enhancements/" + url, { data: data }, config);
         }
@@ -1315,12 +1324,14 @@
         var repoOwnerName = $(".author span").text();
         var repoName = $(".js-current-repository").text();
         if (!repoId) { return; }
-        var statusesManager = new StatusesManager({ userId: userId, repoOwnerName: repoOwnerName, repoName: repoName });
-        sidebar.init({ statusesManager: statusesManager });
-        listManager.init({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
-        pullRequestManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
-        commitManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
-        smartCopying.init();
+        ghHttp.initAccessToken().then(function () {
+          var statusesManager = new StatusesManager({ userId: userId, repoOwnerName: repoOwnerName, repoName: repoName });
+          sidebar.init({ statusesManager: statusesManager });
+          listManager.init({ userId: userId, userName: userName, repoId: repoId, statusesManager: statusesManager });
+          pullRequestManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+          commitManager.init({ userId: userId, repoId: repoId, statusesManager: statusesManager, userName: userName });
+          smartCopying.init();
+        });
         window.destroyGithubEnhancementsStorage = function () {
           var keyStart = "githubenhancements";
           _(localStorage)
