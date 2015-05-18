@@ -472,43 +472,24 @@
         return gheData.get("commitPullRequests.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash });
       };
 
-      StatusesManager.prototype.getReadCommentsOnPullRequest = function (repoId, pullRequestId, includeCommitComments) {
-        var self = this;
-        return gheData.get("pullRequestReadComments.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId })
-          .then(function (pullRequestComments) {
-            if (!includeCommitComments) {
-              return pullRequestComments;
-            }
-            return self.getPullRequestCommits(repoId, pullRequestId).then(function (commits) {
-              var commentsForCommitsPromises = _.map(commits, function (commitHashObj) {
-                return self.getReadCommentsOnCommit(repoId, commitHashObj.commit_hash);
-              });
-              return $q.all(commentsForCommitsPromises)
-                .then(function (commitCommentsUnflattened) {
-                  var commitComments = _.flatten(commitCommentsUnflattened);
-                  return pullRequestComments.concat(commitComments);
-              });
+      StatusesManager.prototype.getReadCommentsOnPullRequest = function (repoId, pullRequestId) {
+        return this.getPullRequestCommits(repoId, pullRequestId)
+          .then(function (commitObjs) {
+            var commits = _.map(commitObjs, function (o) { return o.commit_hash; });
+            return gheData.get("pullRequestReadComments.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, {
+              method: "POST",
+              data: { data: commits, method: "POST" }
             });
-          });
+        });
       };
 
-      StatusesManager.prototype.getReadCommentsOnCommit = function (repoId, commitHash, includeAllPullRequestComments) {
-        var self = this;
-        return gheData.get("commitReadComments.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash })
-          .then(function (commitComments) {
-            if (!includeAllPullRequestComments) {
-              return commitComments;
-            }
-            return self.getCommitPullRequests(repoId, commitHash)
-              .then(function (pullRequestObjs) {
-                var pullRequestCommentsPromise = _.map(pullRequestObjs, function (pullRequestObj) {
-                  return self.getReadCommentsOnPullRequest(repoId, pullRequestObj.pull_request_id);
-                });
-                $q.all(pullRequestCommentsPromise).then(function (pullRequestCommentsUnflattened) {
-                  var pullRequestComments = _.flatten(pullRequestCommentsUnflattened);
-                  return _.uniq(commitComments.concat(pullRequestComments));
-                })
-              })
+      StatusesManager.prototype.getReadCommentsOnCommit = function (repoId, commitHash) {
+        this.getCommitPullRequests(repoId, commitHash)
+          .then(function (pullRequestObjs) {
+            var pullRequestIds = _.map(pullRequestObjs, function (o) { return o.pull_request_id; });
+            return gheData.get("commitReadComments.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash }, {
+              data: { pullRequestIds:  pullRequestIds, method: "POST" }
+            });
           });
       };
 
@@ -525,7 +506,7 @@
         gheData.set("pullRequestOpened.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, utcDateTime);
       };
 
-      StatusesManager.prototype.getPullRequestLastOpened = function (repoId, pullRequestId) {
+      StatusesManager.prototype.getPullRequestOpened = function (repoId, pullRequestId) {
         return gheData.get("pullRequestOpened.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
       };
 
@@ -677,7 +658,7 @@
         var accepts = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.accept; }).length.toString();
         var rejects = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.reject; }).length.toString();
         var mostRecentCommentDatetime = pullRequestInfo.mostRecentCommentDatetime;
-        this._statusesManager.getPullRequestLastOpened(this._repoId, pullRequestId)
+        this._statusesManager.getPullRequestOpened(this._repoId, pullRequestId)
           .then(function (lastOpenedDatetime) {
             lastOpenedDatetime = new Date(lastOpenedDatetime);
             if ($element.find(".issue-meta .enhancements-pull-request-meta-info-container").length === 0) {
@@ -1083,11 +1064,12 @@
       return new GHECache();
     })
     .factory("gheData", function (gheHttp, gheCache, $q) {
-      function RequestConfig(path, params) {
+      function RequestConfig(path, params, config) {
         this.cachePath = path.substitute(params).replaceAll(".", "_");
         this.params = params;
         var firstPeriod = path.indexOf(".");
         this.url = path.substring(0, firstPeriod !== -1 ? firstPeriod : path.length);
+        this.config = config;
       }
 
       function GHEData() {
@@ -1096,9 +1078,9 @@
       }
 
       GHEData.prototype = {
-        get: function (path, params) {
+        get: function (path, params, config) {
           var self = this;
-          var requestConfig = new RequestConfig(path, params);
+          var requestConfig = new RequestConfig(path, params, config);
 
           var cacheNode = gheCache.get(requestConfig.cachePath);
           if (cacheNode && !cacheNode.isDirty) {
@@ -1197,7 +1179,7 @@
         },
         _getFromHttp: function (requestConfig) {
           var self = this;
-          var request = gheHttp.get(requestConfig.url, requestConfig.params)
+          var request = gheHttp.get(requestConfig.url, requestConfig.params, requestConfig.config)
             .then(function (data) {
               var currentPostRequests;
               if (request.invalid) {
@@ -1220,8 +1202,12 @@
       GHEHttp.prototype = {
         get: function (url, params, config) {
           var accessToken = localStorage.getItem("githubenhancements_accessToken");
-          var decoratedParams = angular.extend({ accessToken: accessToken }, params);
-          return $http.get("https://66ac37ee.ngrok.com/enhancements/" + url, { params: decoratedParams })
+          var decoratedParams = angular.extend({ accessToken: accessToken, isGet: true }, params);
+          config = config || {};
+          config.url = "https://66ac37ee.ngrok.com/enhancements/" + url;
+          config.params = decoratedParams;
+          config.method = config.method || "GET";
+          return $http(config)
             .then(function(response) {
               return response.data;
             });
@@ -1231,8 +1217,11 @@
           config.params = config.params || {};
           var accessToken = localStorage.getItem("githubenhancements_accessToken");
           var decoratedParams = angular.extend({ accessToken: accessToken }, config.params);
+          config.method = config.method || "POST";
+          config.url = "https://66ac37ee.ngrok.com/enhancements/" + url;
           config.params = decoratedParams;
-          return $http.post("https://66ac37ee.ngrok.com/enhancements/" + url, { data: data }, config);
+          config.data = { data: data || {} };
+          return $http(config);
         }
       };
 
