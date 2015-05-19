@@ -184,3 +184,7 @@
 .ghe__shortcut-keys {
     margin-left: 10px;
 }
+
+.ghe__status-buttons {
+    float: right;
+}

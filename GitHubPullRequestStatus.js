@@ -424,6 +424,9 @@
             }, {
               path: "pullRequestOpened.{repoId}.{pullRequestId}",
               params: { repoId: repoId, pullRequestId: pullRequestId }
+            }, {
+              path: "pullRequestStatus.{repoId}.{pullRequestId}",
+              params: { repoId: repoId, pullRequestId: pullRequestId }
             }];
           });
 
@@ -442,14 +445,14 @@
                     .max(function (c) { return new Date(c.updated_at); })
                     .value();
                 self._statuses[pullRequestId] = { users: {}, mostRecentCommentDatetime: mostRecentComment ? new Date(mostRecentComment.updated_at) : null };
-                _.each(comments, function (comment) {
-                  var status = self._parseComment(comment);
-                  if (status) {
-                    self._statuses[pullRequestId].users[comment.user.id] = status;
-                  }
-                });
                 var commits = commentsAndCommits.commits[pullRequestId].commits;
-                return self._setInProgressInfo(self._statuses[pullRequestId], repoId, pullRequestId, self._userId, commits);
+                return self.getPullRequestStatus(repoId, pullRequestId).then(function (status) {
+                  if (status) {
+                    self._statuses[pullRequestId].users[status.git_hub_user] = status.status;
+                  }
+                }).then(function () {
+                  return self._setInProgressInfo(self._statuses[pullRequestId], repoId, pullRequestId, self._userId, commits);
+                });
               });
               return $q.all(promises).then(function () { return self._statuses; });
             })
@@ -484,11 +487,12 @@
       };
 
       StatusesManager.prototype.getReadCommentsOnCommit = function (repoId, commitHash) {
-        this.getCommitPullRequests(repoId, commitHash)
+        return this.getCommitPullRequests(repoId, commitHash)
           .then(function (pullRequestObjs) {
             var pullRequestIds = _.map(pullRequestObjs, function (o) { return o.pull_request_id; });
             return gheData.get("commitReadComments.{repoId}.{commitHash}", { repoId: repoId, commitHash: commitHash }, {
-              data: { pullRequestIds:  pullRequestIds, method: "POST" }
+              data: { data:  pullRequestIds },
+              method: "POST"
             });
           });
       };
@@ -508,6 +512,14 @@
 
       StatusesManager.prototype.getPullRequestOpened = function (repoId, pullRequestId) {
         return gheData.get("pullRequestOpened.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
+      };
+
+      StatusesManager.prototype.getPullRequestStatus = function (repoId, pullRequestId) {
+        return gheData.get("pullRequestStatus.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
+      };
+
+      StatusesManager.prototype.markPullRequestStatus = function (repoId, pullRequestId, status) {
+        gheData.set("pullRequestStatus.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, status);
       };
 
       StatusesManager.prototype.getSettings = function () {
@@ -778,7 +790,8 @@
         this._callbacks = {
           isOpen: config.isOpen,
           onOpen: config.onOpen,
-          getDiffId: config.getDiffId
+          getDiffId: config.getDiffId,
+          setupStatusButtons: config.setupStatusButtons
         };
         this._diffId = null;
         this._clean = true;
@@ -808,7 +821,15 @@
         this._onOpen();
         this._commentsManager.start(diffId);
         this._setupFileExpander();
+        this._setupStatusButtons(diffId);
         sidebar.setup();
+      };
+
+      DiffManager.prototype._setupStatusButtons = function(diffId) {
+        if (this._callbacks.setupStatusButtons) {
+          this._callbacks.setupStatusButtons(diffId);
+        }
+
       };
 
       DiffManager.prototype._tearDown = function () {
@@ -852,7 +873,7 @@
 
       return DiffManager;
     })
-    .factory("pullRequestManager", function (CommentsManager, DiffManager) {
+    .factory("pullRequestManager", function (CommentsManager, DiffManager, StatusOptions, $compile, $rootScope) {
       var init = function(config) {
         var commentsManager = new CommentsManager({
           userName: config.userName,
@@ -860,7 +881,7 @@
             config.statusesManager.addReadComment(config.repoId, diffId, commentId);
           },
           getReadComments: function (diffId) {
-            return config.statusesManager.getReadCommentsOnPullRequest(config.repoId, diffId, /*includeCommitComments*/true);
+            return config.statusesManager.getReadCommentsOnPullRequest(config.repoId, diffId);
           }
         });
         new DiffManager({
@@ -880,6 +901,29 @@
           },
           getDiffId: function () {
             return parseInt($(".gh-header-number").text().substring(1), 10);
+          },
+          setupStatusButtons: function (diffId) {
+            config.statusesManager.getPullRequestStatus(config.repoId, diffId).then(function (statusObj) {
+              var scope = $rootScope.$new();
+              if (statusObj && statusObj !== "null") {
+                scope.status = parseInt(statusObj.status, 10);
+              } else {
+                scope.status = null;
+              }
+              scope.statusOptions = StatusOptions;
+              scope.submitStatus = function (statusOption) {
+                scope.status = statusOption;
+                config.statusesManager.markPullRequestStatus(config.repoId, diffId, statusOption);
+              };
+              var buttonGroup =
+                "<div class='btn-group ghe__status-buttons'>" +
+                  "<button type='button' class='btn' ng-click='submitStatus(statusOptions.accept)' ng-class='{ \"selected\": status === statusOptions.accept }'>Approve</button>" +
+                  "<button type='button' class='btn' ng-click='submitStatus(statusOptions.reject)' ng-class='{ \"selected\": status === statusOptions.reject }'>Reject</button>" +
+                  //"<button type='button' class='btn' ng-click='submitStatus(statusOptions.complete)' ng-class='{ \"selected\": status === statusOptions.complete }'>Complete</button>" +
+                "</div>";
+              var $buttonGroup = $compile(buttonGroup)(scope);
+              $(".tabnav-pr .tabnav-tabs").append($buttonGroup);
+            });
           }
         });
       };
@@ -894,7 +938,7 @@
             config.statusesManager.addReadCommentOnCommit(config.repoId, diffId, commentId);
           },
           getReadComments: function (diffId) {
-            return config.statusesManager.getReadCommentsOnCommit(config.repoId, diffId, /*includeCommitComment*/true);
+            return config.statusesManager.getReadCommentsOnCommit(config.repoId, diffId);
           }
         });
         new DiffManager({
