@@ -608,7 +608,7 @@
       };
 
       ListManager.prototype._getPullRequestListItems = function () {
-        return $(".issues-listing .table-list [data-issue-id]")
+        return $(".issues-listing .table-list li")
           .filter(function (i, e) {
             return $(e).find(".octicon-git-pull-request").length;
           });
@@ -619,7 +619,7 @@
       };
 
       ListManager.prototype._getPullRequestIds = function (pullRequestListItems) {
-        return pullRequestListItems.map(function(i, e) { return parseInt($(e).attr("data-issue-id"), 10); });
+        return pullRequestListItems.map(function(i, e) { return parseInt($(e).find("input").val(), 10); });
       };
 
       ListManager.prototype._checkedLongTimeAgo = function () {
@@ -637,7 +637,7 @@
             self._getPullRequestListItems()
               .each(function (i, element) {
                 var $element = $(element);
-                var pullRequestId = parseInt($element.attr("data-issue-id"), 10);
+                var pullRequestId = parseInt($element.find("input").val(), 10);
                 var pullRequestInfo = statuses[pullRequestId];
                 if (!pullRequestInfo) { return; }
                 self._renderListItemBackground($element, pullRequestInfo.users[self._userId]);
@@ -763,7 +763,7 @@
               self._onRead(commentId);
               self._sync();
             }
-          }, 2000);
+          }, 1000);
         }
       };
 
@@ -1038,7 +1038,7 @@
           return $q.reject("failedToGetAccessToken");
         }
         else if (queryString.code) {
-          return $http.post("https://www.platform.githubenhancements.com/enhancements/requestAccessToken?code=" + queryString.code)
+          return $http.post(window.platformUrl + "/enhancements/requestAccessToken?code=" + queryString.code)
             .then(function (response) {
               if (!response.data.access_token) { return $q.reject("failedToGetAccessToken"); }
               self._setAccessToken(response.data.access_token);
@@ -1248,7 +1248,7 @@
           var accessToken = localStorage.getItem("githubenhancements_accessToken");
           var decoratedParams = angular.extend({ accessToken: accessToken, isGet: true }, params);
           config = config || {};
-          config.url = "https://66ac37ee.ngrok.com/enhancements/" + url;
+          config.url = window.platformUrl + "/enhancements/" + url;
           config.params = decoratedParams;
           config.method = config.method || "GET";
           return $http(config)
@@ -1262,7 +1262,7 @@
           var accessToken = localStorage.getItem("githubenhancements_accessToken");
           var decoratedParams = angular.extend({ accessToken: accessToken }, config.params);
           config.method = config.method || "POST";
-          config.url = "https://66ac37ee.ngrok.com/enhancements/" + url;
+          config.url = window.platformUrl + "/enhancements/" + url;
           config.params = decoratedParams;
           config.data = { data: data || {} };
           return $http(config);
@@ -1355,7 +1355,7 @@
         window.gitHubUserId = userId;
         var userName = $("[name='octolytics-actor-login']").attr("content");
         var repoOwnerName = $(".author span").text();
-        var repoName = $(".js-current-repository").text();
+        var repoName = $("a[data-pjax='#js-repo-pjax-container']").text();
         if (!repoId) { return; }
         ghHttp.initAccessToken().then(function () {
           var statusesManager = new StatusesManager({ userId: userId, repoOwnerName: repoOwnerName, repoName: repoName });
@@ -1378,3 +1378,4 @@
   angular.injector(['ng', 'core']).invoke(function (main) { main.run(); });
 })();
 
+window.platformUrl = "https://www.platform.githubenhancements.com";
