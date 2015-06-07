@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "github.monkeypatch.pullrequests",
   "description": "Keep track of pull requests you've viewed, approved, or rejected.",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "icons": {
     "128": "codeducky_partial_logo_128x128.png"
   },
