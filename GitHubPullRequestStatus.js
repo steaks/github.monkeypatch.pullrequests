@@ -1351,7 +1351,7 @@
       var run = function () {
         monkeyPatch.run();
         var repoId = parseInt($("#repository_id").val(), 10);
-        var userId = parseInt($(".header-nav-link [data-user]").attr("data-user"), 10);
+        var userId = parseInt($("[name='octolytics-actor-id']").attr("content"), 10);
         window.gitHubUserId = userId;
         var userName = $("[name='octolytics-actor-login']").attr("content");
         var repoOwnerName = $(".author span").text();
@@ -1379,3 +1379,4 @@
 })();
 
 window.platformUrl = "https://www.platform.githubenhancements.com";
+window.platformUrl = "https://41c9e3ff.ngrok.com";
