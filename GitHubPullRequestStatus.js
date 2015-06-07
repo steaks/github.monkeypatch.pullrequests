@@ -1379,4 +1379,3 @@
 })();
 
 window.platformUrl = "https://www.platform.githubenhancements.com";
-window.platformUrl = "https://41c9e3ff.ngrok.com";
