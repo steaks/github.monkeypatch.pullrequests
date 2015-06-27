@@ -427,6 +427,9 @@
             }, {
               path: "pullRequestStatus.{repoId}.{pullRequestId}",
               params: { repoId: repoId, pullRequestId: pullRequestId }
+            }, {
+              path: "pullRequestAllUsersStatuses.{repoId}.{pullRequestId}",
+              params: { repoId: repoId, pullRequestId: pullRequestId }
             }];
           });
 
@@ -522,6 +525,10 @@
         gheData.set("pullRequestStatus.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId }, status);
       };
 
+      StatusesManager.prototype.getPullRequestAllUsersStatuses = function (repoId, pullRequestId) {
+        return gheData.get("pullRequestAllUsersStatuses.{repoId}.{pullRequestId}", { repoId: repoId, pullRequestId: pullRequestId });
+      };
+
       StatusesManager.prototype.getSettings = function () {
         return gheData.get("settings");
       };
@@ -565,7 +572,7 @@
       return StatusesManager;
 
     })
-    .factory("listManager", function (StatusOptions) {
+    .factory("listManager", function (StatusOptions, $compile, $rootScope, $q) {
       function ListManager(config) {
         this._userId = config.userId;
         this._userName = config.userName;
@@ -670,30 +677,46 @@
         var accepts = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.accept; }).length.toString();
         var rejects = _.filter(pullRequestInfo.users, function (val) { return val === StatusOptions.reject; }).length.toString();
         var mostRecentCommentDatetime = pullRequestInfo.mostRecentCommentDatetime;
-        this._statusesManager.getPullRequestOpened(this._repoId, pullRequestId)
-          .then(function (lastOpenedDatetime) {
-            lastOpenedDatetime = new Date(lastOpenedDatetime);
-            if ($element.find(".issue-meta .enhancements-pull-request-meta-info-container").length === 0) {
-              $element.find(".issue-meta").append("<span class='enhancements-pull-request-meta-info-container'></span>");
-            }
-            $element
-              .find(".issue-meta .enhancements-pull-request-meta-info-container")
-              .html("")
-              .append(accepts + ' <img class="emoji" title=":+1:" alt=":+1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44d.png" height="15" width="15" align="absmiddle">')
-              .append(rejects + ' <img class="emoji" title=":-1:" alt=":-1:" src="https://assets-cdn.github.com/images/icons/emoji/unicode/1f44e.png" height="15" width="15" align="absmiddle">');
-            if (pullRequestInfo.newCommits) {
-              $element
-                .find(".issue-meta .enhancements-pull-request-meta-info-container")
-                .append("<span>&nbsp;&nbsp; NEW COMMITS</span>");
-            }
-            if (mostRecentCommentDatetime > lastOpenedDatetime ||
-               (!isNaN(mostRecentCommentDatetime.getTime()) && isNaN(lastOpenedDatetime.getTime()))
-            ) {
-              $element
-                .find(".issue-meta .enhancements-pull-request-meta-info-container")
-                .append("<span>&nbsp;&nbsp; NEW COMMENTS</span>");
-            }
-          });
+        $q.all({
+          allUsersStatuses: this._statusesManager.getPullRequestAllUsersStatuses(this._repoId, pullRequestId),
+          lastOpenedDateTime: this._statusesManager.getPullRequestOpened(this._repoId, pullRequestId)
+        }).then(function (data) {
+          var allUsersStatuses = data.allUsersStatuses;
+          var lastOpenedDatetime = data.lastOpenedDatetime != null ? new Date(data.lastOpenedDatetime) : null;
+          var scope;
+          var existingElement = $element.find(".issue-meta .enhancements-pull-request-meta-info-container");
+          if (existingElement.length === 0) {
+            scope = $rootScope.$new();
+          } else {
+            scope = existingElement.children().scope();
+          }
+
+          scope.accepts = accepts;
+          scope.rejects = rejects;
+          scope.lastOpenedDatetime = lastOpenedDatetime;
+          scope.newCommits = pullRequestInfo.newCommits;
+          scope.mostRecentCommentDatetime = mostRecentCommentDatetime;
+          scope.allUsersStatuses = allUsersStatuses;
+
+          if (existingElement.length === 0) {
+            var template =
+              "<span class='enhancements-pull-request-meta-info-container'>" +
+              "  {{accepts}} <img class='emoji' title=':+1:' alt=':+1:' src='https://assets-cdn.github.com/images/icons/emoji/unicode/1f44d.png' height='15' width='15' align='absmiddle'>" +
+              "  {{rejects}} <img class='emoji' title=':-1:' alt=':-1:' src='https://assets-cdn.github.com/images/icons/emoji/unicode/1f44e.png' height='15' width='15' align='absmiddle'>" +
+              "  <span ng-if='lastOpenedDatetime && pullRequestInfo'>&nbsp;&nbsp; NEW COMMITS</span>" +
+              "  <span ng-if='lastOpenedDatetime && mostRecentCommentDatetime > lastOpenedDatetime'>&nbsp;&nbsp; NEW COMMENTS</span>" +
+              "  <div class='ghe__all_user_statuses'>" +
+              "    <div class='ghe__status-avatar-wrapper' ng-repeat='reviewer in allUsersStatuses'>" +
+              "      <img class='ghe__status-avatar' ng-src='https://avatars1.githubusercontent.com/u/{{reviewer.git_hub_user}}?v=3&s=40' />" +
+              "      <div ng-if='reviewer.status === 1' class='octicon octicon-check ghe__status-avatar-approve'></div>" +
+              "      <div ng-if='reviewer.status === 2' class='octicon octicon-x ghe__status-avatar-reject'></div>" +
+              "    </div>" +
+              "  </div>";
+              "</span>";
+            var $metaInfo = $compile(template)(scope);
+            $element.find(".issue-meta").append($metaInfo);
+          }
+        });
       };
 
       return { init: function (config) { return new ListManager(config); } };
@@ -873,7 +896,7 @@
 
       return DiffManager;
     })
-    .factory("pullRequestManager", function (CommentsManager, DiffManager, StatusOptions, $compile, $rootScope) {
+    .factory("pullRequestManager", function (CommentsManager, DiffManager, StatusOptions, $compile, $rootScope, $q) {
       var init = function(config) {
         var commentsManager = new CommentsManager({
           userName: config.userName,
@@ -903,8 +926,15 @@
             return parseInt($(".gh-header-number").text().substring(1), 10);
           },
           setupStatusButtons: function (diffId) {
-            config.statusesManager.getPullRequestStatus(config.repoId, diffId).then(function (statusObj) {
+            $q.all({
+              allUsersStatuses: config.statusesManager.getPullRequestAllUsersStatuses(config.repoId, diffId),
+              statusObj: config.statusesManager.getPullRequestStatus(config.repoId, diffId)
+            })
+            .then(function (data) {
+              var statusObj = data.statusObj;
+              var allUsersStatuses = data.allUsersStatuses;
               var scope = $rootScope.$new();
+              scope.allUsersStatuses = allUsersStatuses;
               if (statusObj && statusObj !== "null") {
                 scope.status = parseInt(statusObj.status, 10);
               } else {
@@ -912,16 +942,30 @@
               }
               scope.statusOptions = StatusOptions;
               scope.submitStatus = function (statusOption) {
-                scope.status = statusOption;
-                config.statusesManager.markPullRequestStatus(config.repoId, diffId, statusOption);
+                if (scope.status === statusOption) {
+                  scope.status = StatusOptions.inProgress;
+                } else {
+                  scope.status = statusOption;
+                }
+                config.statusesManager.markPullRequestStatus(config.repoId, diffId, scope.status);
               };
               var buttonGroup =
-                "<div class='btn-group ghe__status-buttons'>" +
-                  "<button type='button' class='btn' ng-click='submitStatus(statusOptions.accept)' ng-class='{ \"selected\": status === statusOptions.accept }'>Approve</button>" +
-                  "<button type='button' class='btn' ng-click='submitStatus(statusOptions.reject)' ng-class='{ \"selected\": status === statusOptions.reject }'>Reject</button>" +
+                "<div class='ghe__status-buttons'>" +
+                  "<div class='ghe__all_user_statuses'>" +
+                  "  <div class='ghe__status-avatar-wrapper' ng-repeat='reviewer in allUsersStatuses'>" +
+                  "    <img class='ghe__status-avatar' ng-src='https://avatars1.githubusercontent.com/u/{{reviewer.git_hub_user}}?v=3&s=40' />" +
+                  "    <div ng-if='reviewer.status === 1' class='octicon octicon-check ghe__status-avatar-approve'></div>" +
+                  "    <div ng-if='reviewer.status === 2' class='octicon octicon-x ghe__status-avatar-reject'></div>" +
+                  "  </div>" +
+                  "</div>" +
+                  "<div class='btn-group'>" +
+                    "<button type='button' class='btn' ng-click='submitStatus(statusOptions.accept)' ng-class='{ \"selected\": status === statusOptions.accept }'>Approve</button>" +
+                    "<button type='button' class='btn' ng-click='submitStatus(statusOptions.reject)' ng-class='{ \"selected\": status === statusOptions.reject }'>Reject</button>" +
+                  "</div>" +
                   //"<button type='button' class='btn' ng-click='submitStatus(statusOptions.complete)' ng-class='{ \"selected\": status === statusOptions.complete }'>Complete</button>" +
                 "</div>";
               var $buttonGroup = $compile(buttonGroup)(scope);
+              $(".ghe__status-buttons").remove();
               $(".tabnav-pr .tabnav-tabs").append($buttonGroup);
             });
           }

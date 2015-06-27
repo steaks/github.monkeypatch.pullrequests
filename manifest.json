@@ -2,14 +2,15 @@
   "manifest_version": 2,
   "name": "github.monkeypatch.pullrequests",
   "description": "Keep track of pull requests you've viewed, approved, or rejected.",
-  "version": "1.7.2",
+  "version": "1.7.4",
   "icons": {
     "128": "codeducky_partial_logo_128x128.png"
   },
   "content_scripts" : [{
     "matches" : [
       "https://github.com/*",
-      "https://www.platform.githubenhancements.com/*"
+      "https://www.platform.githubenhancements.com/*",
+      "https://19d75b63.ngrok.com/*"
     ],
     "js": [ "jquery-1.11.1.min.js", "jquery.visible.js", "lodash.js", "angular.js", "jquery.hotkeys.js", "jquery.scrollTo.js", "GitHubPullRequestStatus.js" ],
     "css": ["GitHubPullRequestStatus.css"]

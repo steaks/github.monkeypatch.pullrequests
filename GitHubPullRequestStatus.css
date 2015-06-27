@@ -187,4 +187,57 @@
 
 .ghe__status-buttons {
     float: right;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.ghe__status-avatar-wrapper {
+    position: relative;
+    margin-top: auto;
+    margin-bottom: auto;
+    margin-right: 5px;
+}
+
+.ghe__status-avatar {
+    height: 20px;
+    border-radius: 10px;
+}
+
+.ghe__all_user_statuses {
+    display: flex;
+}
+
+.ghe__status-avatar-approve.octicon {
+    position: absolute;
+    border-radius: 50%;
+    background-color: #55a532;
+    color: white;
+    font-size: 9px;
+    top: -3px;
+    right: -3px;
+    padding-left: 1.5px;
+    height: 9px;
+    width: 9px;
+}
+
+.ghe__status-avatar-reject.octicon {
+    position: absolute;
+    border-radius: 50%;
+    background-color: #bd2c00;
+    color: white;
+    font-size: 9px;
+    top: -3px;
+    right: -3px;
+    padding-left: 1.9px;
+    height: 9px;
+    width: 9px;
+}
+
+.enhancements-pull-request-meta-info-container .ghe__all_user_statuses {
+    display: inline-block;
+    height: 12px;
+}
+
+.enhancements-pull-request-meta-info-container .ghe__status-avatar-wrapper {
+    float: left;
 }
